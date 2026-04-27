@@ -259,7 +259,6 @@ def _capture_worker(device_index: int, stop_event: threading.Event, browser_ws: 
 def start_capture(device_index: int, browser_ws: WebSocket):
     global _capture_thread, _capture_stop
     stop_capture()
-    _ensure_engine(_wlk_language)
     _capture_stop = threading.Event()
     with _engine_lock:
         engine = _transcription_engine
@@ -366,6 +365,7 @@ async def control_ws(ws: WebSocket):
                 if device_index is None:
                     await ws.send_text(json.dumps({"error": "No device index provided"}))
                     continue
+                await asyncio.to_thread(_ensure_engine, _wlk_language)
                 start_capture(int(device_index), ws)
                 await ws.send_text(json.dumps({"status": "capture_started"}))
 
