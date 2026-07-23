@@ -8,40 +8,32 @@ import re
 from urllib import parse as urllib_parse
 from urllib import request as urllib_request
 
-# Config
 
 TRANSLATION_BACKEND = "google"
 
-# DeepL
 DEEPL_API_KEY = ""
 DEEPL_API_URL = "https://api.deepl.com/v2/translate"
 
-# OpenAI-compatible
 OPENAI_API_KEY     = ""
 OPENAI_MODEL       = ""
-OPENAI_BASE_URL    = ""   # e.g. https://api.openai.com/v1/chat/completions
+OPENAI_BASE_URL    = ""
 OPENAI_TEMPERATURE = 1.0
 
-# OpenRouter
 OPENROUTER_API_KEY     = ""
 OPENROUTER_MODEL       = ""
 OPENROUTER_TEMPERATURE = 1.0
 
-# LM Studio (local)
 LMSTUDIO_URL         = "http://localhost:1234/api/v1"
 LMSTUDIO_MODEL       = ""
 LMSTUDIO_TEMPERATURE = 1.0
 
-# LibreTranslate (self-hosted)
 LIBRETRANSLATE_URL     = "http://localhost:5000/translate"
 LIBRETRANSLATE_API_KEY = ""
 
-# Ollama (local)
 OLLAMA_URL         = "http://localhost:11434"
 OLLAMA_MODEL       = ""
 OLLAMA_TEMPERATURE = 1.0
 
-# Shared constants
 
 _TIMEOUT = 8
 
@@ -55,19 +47,16 @@ _DEFAULT_SYSTEM_PROMPT = (
     "REMOVE all 🔤 when you output."
 )
 
-# Override: leave blank to use the default prompt above.
-# Use {language} as a placeholder for the target language name.
 SYSTEM_PROMPT_OVERRIDE = ""
 
 _THINKING_RE = re.compile(r"<thinking>.*?</thinking>", re.DOTALL)
 
-# Language code helpers
 
 def _to_google_lang(bcp47: str | None) -> str:
     if not bcp47:
         return "en"
     if bcp47.lower().startswith("zh"):
-        return bcp47   # keep zh-CN / zh-TW as-is for Google
+        return bcp47
     return bcp47.split("-")[0]
 
 
@@ -87,7 +76,6 @@ def _to_deepl_lang(bcp47: str | None) -> str | None:
 
 
 def _to_libre_lang(bcp47: str | None) -> str:
-    """LibreTranslate uses plain language codes (no region)."""
     if not bcp47:
         return "auto"
     return bcp47.split("-")[0].lower()
@@ -104,7 +92,6 @@ def _lang_name(bcp47: str | None) -> str:
         return "English"
     return _NAMES.get(bcp47.split("-")[0].lower(), bcp47)
 
-# Shared helpers
 
 def _system_prompt(target: str | None) -> str:
     template = SYSTEM_PROMPT_OVERRIDE.strip() or _DEFAULT_SYSTEM_PROMPT
@@ -116,7 +103,6 @@ def _wrap(text: str) -> str:
 
 
 def _clean(text: str) -> str:
-    """Strip <thinking> blocks and 🔤 markers from LLM output."""
     text = _THINKING_RE.sub("", text)
     return text.replace("🔤", "").strip()
 
@@ -127,11 +113,18 @@ def _post(url: str, body: dict, headers: dict) -> dict:
         data=json.dumps(body).encode(),
         headers={"Content-Type": "application/json", **headers},
     )
-    with urllib_request.urlopen(req, timeout=_TIMEOUT) as r:
-        return json.loads(r.read())
+    try:
+        with urllib_request.urlopen(req, timeout=_TIMEOUT) as r:
+            return json.loads(r.read())
+    except urllib_request.HTTPError as e:
+        detail = e.read().decode(errors="replace")
+        try:
+            detail = json.loads(detail)["error"]["message"]
+        except (json.JSONDecodeError, KeyError, TypeError):
+            pass
+        raise RuntimeError(f"{e.code} {e.reason}: {detail}") from e
 
 
-# Backends
 
 def _google(text: str, source: str | None, target: str | None) -> dict:
     tgt = _to_google_lang(target) or "en"
@@ -163,15 +156,9 @@ def _openai(text: str, source: str | None, target: str | None) -> dict:
             {"role": "system", "content": _system_prompt(target)},
             {"role": "user",   "content": _wrap(text)},
         ],
-        "temperature":      OPENAI_TEMPERATURE,
-        "max_tokens":       128,
-        "stream":           False,
-        # Disable thinking/reasoning
-        "think":            False,
-        "enable_thinking":  False,
-        "reasoning_effort": "low",
-        "reasoning":        {"exclude": True, "enabled": False, "effort": "low"},
-        "thinking":         {"type": "disabled"},
+        "temperature":            OPENAI_TEMPERATURE,
+        "max_completion_tokens":  128,
+        "stream":                 False,
     }
     if OPENAI_MODEL:
         body["model"] = OPENAI_MODEL
@@ -248,7 +235,6 @@ def _ollama(text: str, source: str | None, target: str | None) -> dict:
     return {"translated": _clean(data["message"]["content"])}
 
 
-# Public API
 
 _BACKENDS: dict[str, callable] = {
     "google":         _google,
@@ -262,7 +248,6 @@ _BACKENDS: dict[str, callable] = {
 
 
 def translate(text: str, source_language: str | None = None, target_language: str | None = None) -> dict:
-    """Translate text and return {"translated": "..."}."""
     backend = _BACKENDS.get(TRANSLATION_BACKEND)
     if backend is None:
         raise RuntimeError(

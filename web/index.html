@@ -3,14 +3,14 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Live Japanese Transcription</title>
-  <link rel="stylesheet" href="/styles.css" />
+  <title>Live Transcription</title>
+  <link rel="stylesheet" href="/styles.css?v=4" />
 </head>
 <body>
 
 <header>
   <div id="status-dot"></div>
-  <h1>Live Japanese Transcription</h1>
+  <h1>Live Transcription</h1>
   <span id="status-text">Stopped</span>
 </header>
 
@@ -37,6 +37,8 @@
     <option value="ru">Russian</option>
     <option value="ar">Arabic</option>
     <option value="ms">Malay</option>
+    <option value="lv">Latvian</option>
+    <option value="nl">Dutch</option>
     <option value="auto">Auto</option>
   </select>
   <span style="font-size:13px;color:#666;">→</span>
@@ -52,6 +54,8 @@
     <option value="ar-SA">Arabic</option>
     <option value="th-TH">Thai</option>
     <option value="tr-TR">Turkish</option>
+    <option value="lv-LV">Latvian</option>
+    <option value="nl-NL">Dutch</option>
   </select>
   <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:#aaa;margin-left:8px;cursor:pointer;">
     <input type="checkbox" id="osc-toggle" style="cursor:pointer;"> VRChat OSC
@@ -63,13 +67,62 @@
   <button id="btn-config" title="Translation settings">⚙</button>
 </div>
 
-<!-- Settings panel -->
+<div id="translate-banner" hidden>
+  <span id="translate-banner-text"></span>
+  <button id="translate-banner-settings">Settings</button>
+  <button id="translate-banner-dismiss" title="Dismiss">✕</button>
+</div>
+
+
 <div id="config-panel">
   <div id="config-header">
     <span>Settings</span>
     <button id="config-close">✕</button>
   </div>
+  <div id="update-banner">
+    <div class="ub-icon">&#8593;</div>
+    <div class="ub-text">
+      <div class="ub-title">Update available: v<span id="ub-latest"></span></div>
+      <div class="ub-sub">You are on v<span id="ub-current"></span>.</div>
+    </div>
+    <button id="ub-download">Download</button>
+  </div>
+  <div id="config-main">
+  <div id="config-left">
   <div id="config-body">
+    <section class="settings-page active" id="page-engine">
+    <label class="config-label">Transcription Engine <span style="color:#555;font-size:11px;">(applies immediately)</span></label>
+    <select id="cfg-engine"></select>
+    <div id="cfg-engine-install" style="display:none;margin-top:8px;">
+      <button id="cfg-install-btn" style="background:#685EBD;border:none;border-radius:6px;color:#fff;font-size:12px;padding:6px 12px;cursor:pointer;">Install engine</button>
+      <span id="cfg-install-progress" style="font-size:12px;color:#888;margin-left:8px;font-family:Consolas,'Courier New',monospace;"></span>
+    </div>
+    <button id="cfg-uninstall-btn" style="display:none;margin-top:8px;align-self:flex-start;background:#2a2a2a;border:1px solid #3a3a3a;border-radius:6px;color:#c66;font-size:11px;padding:4px 10px;cursor:pointer;">Uninstall engine</button>
+    <div id="cfg-model-row">
+      <label class="config-label" style="margin-top:10px;">Model</label>
+      <select id="cfg-model"></select>
+    </div>
+
+    <label class="config-label" style="margin-top:12px;">Models &amp; Storage</label>
+    <div id="cfg-models" style="font-size:12px;color:#999;display:flex;flex-direction:column;gap:6px;"></div>
+    <div id="cfg-models-footer" style="font-size:11px;color:#555;font-family:Consolas,'Courier New',monospace;"></div>
+    </section>
+
+    <section class="settings-page" id="page-audio">
+    <label class="config-label">Noise Gate <span style="color:#555;font-size:11px;">(applies immediately)</span></label>
+    <div id="level-meter" title="Input level. Drag the marker to set the minimum sound level; quieter audio is ignored.">
+      <div id="level-bar"></div>
+      <input type="range" id="level-slider" min="0" max="100" value="0" />
+    </div>
+    <div style="font-size:11px;color:#555;line-height:1.5;">
+      Audio quieter than the marker is ignored, such as background chatter, keyboard
+      noise, or a TV in the room. Start capture to see the live level, then drag the
+      marker just above where the bar sits while you are not speaking. All the way
+      left turns the gate off.
+    </div>
+    </section>
+
+    <section class="settings-page" id="page-translation">
     <label class="config-label">System Prompt <span style="color:#555;font-size:11px;">({language} = target lang)</span></label>
     <textarea id="cfg-system-prompt" rows="5" placeholder="Loading..."></textarea>
 
@@ -135,12 +188,110 @@
       <label class="config-label" style="margin-top:10px;">Temperature</label>
       <input id="cfg-ollama-temp" type="number" min="0" max="2" step="0.1" />
     </div>
+    </section>
 
+    <section class="settings-page" id="page-phrases">
+    <label class="config-label">Blocked Phrases <span style="color:#555;font-size:11px;">(one per line; lines containing these are ignored. Common Whisper hallucinations are blocked by default)</span></label>
+    <textarea id="cfg-blocked-phrases" rows="4" placeholder="e.g. Thanks for watching"></textarea>
+    </section>
+
+    <section class="settings-page" id="page-about">
+    <div class="credits-title">Credits &amp; Licenses <span id="cfg-version"></span></div>
+    <div style="font-size:11px;color:#666;line-height:1.5;">Built on the following open-source projects and models.</div>
+
+    <div class="credits-head">Speech recognition</div>
+    <ul class="credits">
+      <li><a href="https://github.com/QuentinFuxa/WhisperLiveKit" target="_blank">WhisperLiveKit</a> &middot; <span class="lic">Apache-2.0</span><br>
+        <span class="desc">Streaming transcription engine wrapping SimulStreaming / faster-whisper.</span></li>
+      <li><a href="https://github.com/openai/whisper" target="_blank">OpenAI Whisper</a> models &middot; <span class="lic">MIT</span></li>
+      <li><a href="https://github.com/k2-fsa/sherpa-onnx" target="_blank">sherpa-onnx</a> &middot; <span class="lic">Apache-2.0</span><br>
+        <span class="desc">ONNX Runtime-based streaming speech recognition.</span></li>
+      <li><a href="https://huggingface.co/nvidia" target="_blank">NVIDIA Parakeet</a> models &middot; <span class="lic">CC-BY-4.0</span><br>
+        <span class="desc">&copy; NVIDIA Corporation. Used under the
+        <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank">Creative Commons Attribution 4.0 International License</a>.</span></li>
+      <li><a href="https://github.com/snakers4/silero-vad" target="_blank">Silero VAD</a> &middot; <span class="lic">MIT</span><br>
+        <span class="desc">Voice activity detection.</span></li>
+    </ul>
+
+    <div class="credits-head">Application</div>
+    <ul class="credits">
+      <li><a href="https://fastapi.tiangolo.com/" target="_blank">FastAPI</a> &middot; <span class="lic">MIT</span></li>
+      <li><a href="https://www.uvicorn.org/" target="_blank">uvicorn</a> &middot; <span class="lic">BSD-3-Clause</span></li>
+      <li><a href="https://numpy.org/" target="_blank">NumPy</a> &middot; <span class="lic">BSD-3-Clause</span></li>
+      <li><a href="https://github.com/s0d3s/PyAudioWPatch" target="_blank">PyAudioWPatch</a> &middot; <span class="lic">Apache-2.0</span> <span class="desc">(WASAPI loopback capture)</span></li>
+      <li><a href="https://github.com/attwad/python-osc" target="_blank">python-osc</a> &middot; <span class="lic">Unlicense</span> <span class="desc">(VRChat OSC output)</span></li>
+      <li><a href="https://github.com/python-websockets/websockets" target="_blank">websockets</a> &middot; <span class="lic">BSD-3-Clause</span></li>
+      <li><a href="https://github.com/pytauri/pytauri" target="_blank">PyTauri</a> / <a href="https://tauri.app/" target="_blank">Tauri</a> &middot; <span class="lic">Apache-2.0 / MIT</span> <span class="desc">(desktop shell)</span></li>
+      <li><a href="https://github.com/astral-sh/uv" target="_blank">uv</a> &middot; <span class="lic">MIT / Apache-2.0</span> <span class="desc">(engine dependency installer)</span></li>
+      <li><a href="https://www.python.org/" target="_blank">CPython</a> &middot; <span class="lic">PSF License</span> <span class="desc">bundled via
+        <a href="https://github.com/astral-sh/python-build-standalone" target="_blank">python-build-standalone</a></span></li>
+    </ul>
+    <div id="about-update">
+      <button id="cfg-update-check">Check for updates</button>
+      <span id="cfg-update-status"></span>
+    </div>
+    </section>
+  </div>
+  <div id="config-footer">
     <button id="cfg-save">Save</button>
     <span id="cfg-status"></span>
   </div>
+  </div>
+  <nav id="config-nav">
+    <button data-page="engine" class="active">Engine</button>
+    <button data-page="audio">Audio</button>
+    <button data-page="translation">Translation</button>
+    <button data-page="phrases">Phrases</button>
+    <button data-page="about">About</button>
+  </nav>
+  </div>
 </div>
 <div id="config-backdrop"></div>
+
+
+<div id="wizard-backdrop">
+  <div id="wizard">
+    <div class="wizard-step active" id="wiz-step-engine">
+      <h2>Welcome to Live Transcription</h2>
+      <p class="wiz-sub">Live captions for your voice or your speaker audio, with optional
+      translation and VRChat chatbox output. First, pick a transcription engine.</p>
+      <div id="wiz-engines"></div>
+      <div class="wiz-actions">
+        <button id="wiz-skip" class="wiz-secondary">Skip setup</button>
+        <button id="wiz-install" class="wiz-primary">Install</button>
+      </div>
+    </div>
+
+    <div class="wizard-step" id="wiz-step-install">
+      <h2>Installing engine</h2>
+      <p class="wiz-sub">Downloading the engine runtime and model. This can take a few
+      minutes; it only happens once.</p>
+      <div id="wiz-progress">Starting...</div>
+      <div class="wiz-actions">
+        <button id="wiz-install-back" class="wiz-secondary" style="display:none;">Back</button>
+      </div>
+    </div>
+
+    <div class="wizard-step" id="wiz-step-setup">
+      <h2>Almost done</h2>
+      <label class="config-label">Audio source</label>
+      <div class="source-toggle" id="wiz-source-toggle">
+        <button id="wiz-src-mic" class="active">Mic</button>
+        <button id="wiz-src-loopback">Speaker</button>
+      </div>
+      <select id="wiz-device"></select>
+      <label class="config-label" style="margin-top:6px;">Spoken language</label>
+      <select id="wiz-lang"></select>
+      <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:#aaa;margin-top:6px;cursor:pointer;">
+        <input type="checkbox" id="wiz-translate" style="cursor:pointer;"> Show translations
+      </label>
+      <select id="wiz-target" disabled></select>
+      <div class="wiz-actions">
+        <button id="wiz-finish" class="wiz-primary">Finish</button>
+      </div>
+    </div>
+  </div>
+</div>
 
 <div id="transcript-container">
   <div id="main-zone">
@@ -158,6 +309,6 @@
   </div>
 </div>
 
-<script src="/app.js"></script>
+<script src="/app.js?v=4"></script>
 </body>
 </html>

@@ -1,0 +1,11 @@
+{
+  "id": "whisper",
+  "name": "Whisper (best accuracy, GPU recommended)",
+  "protocol": 1,
+  "entry": "engine_server.py",
+  "python": "../../.venv/Scripts/python.exe",
+  "torch_cuda_index": "cu128",
+  "languages": ["auto", "ja", "en", "zh", "ko", "fr", "es", "pt", "de", "ru", "ar", "ms", "lv", "nl"],
+  "models": ["tiny", "base", "small", "medium", "large-v3-turbo", "large-v3"],
+  "default_model": "large-v3-turbo"
+}

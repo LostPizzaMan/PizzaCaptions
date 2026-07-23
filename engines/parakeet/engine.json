@@ -1,0 +1,10 @@
+{
+  "id": "parakeet",
+  "name": "Parakeet (fast, CPU-friendly)",
+  "protocol": 1,
+  "entry": "engine_server.py",
+  "python": "python/python.exe",
+  "languages": ["en", "ja", "de", "fr", "es", "pt", "it", "nl", "ru", "uk", "pl", "cs", "sk", "sl", "bg", "hr", "ro", "hu", "el", "da", "sv", "fi", "et", "lv", "lt", "mt"],
+  "models": ["default"],
+  "default_model": "default"
+}
