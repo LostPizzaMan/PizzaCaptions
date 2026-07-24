@@ -1,6 +1,6 @@
 let userClosing = false;
 let isReconnecting = false;
-let sourceMode = 'mic';
+let sourceMode = 'mic'; 
 let controlWs = null;
 let allDevices = { mic: [], loopback: [] };
 let savedDeviceNames = { mic: '', loopback: '' };
@@ -29,16 +29,19 @@ const historyZone   = document.getElementById('history-zone');
 const rawFeed       = document.getElementById('raw-feed');
 const micLabel      = document.getElementById('mic-label');
 const oscToggle       = document.getElementById('osc-toggle');
+const muteSuppress    = document.getElementById('cfg-mute-suppress');
 const translateToggle = document.getElementById('translate-toggle');
 const translateBanner     = document.getElementById('translate-banner');
 const translateBannerText = document.getElementById('translate-banner-text');
 const sourceLangSelect = document.getElementById('lang-select');
 const targetLangSelect = document.getElementById('target-lang-select');
+const swapLangBtn   = document.getElementById('btn-swap-lang');
 const srcMicBtn     = document.getElementById('src-mic');
 const srcLoopBtn    = document.getElementById('src-loopback');
 const deviceSelect  = document.getElementById('device-select');
 const levelBar      = document.getElementById('level-bar');
 const levelSlider   = document.getElementById('level-slider');
+const levelValue    = document.getElementById('level-value');
 
 const TRANSCRIPTION_TO_TRANSLATION_SOURCE = {
   ja: 'ja-JP', en: 'en-US', zh: 'zh-CN', ko: 'ko-KR', fr: 'fr-FR',
@@ -61,7 +64,7 @@ const LANGUAGE_NAMES = {
   lt: 'Lithuanian', mt: 'Maltese', th: 'Thai', tr: 'Turkish'
 };
 
-let engineInfo = null;
+let engineInfo = null; 
 
 function populateLangSelect(languages, selected) {
   sourceLangSelect.innerHTML = languages.map(code =>
@@ -84,14 +87,14 @@ async function loadEngines() {
     const res = await fetch('/engines');
     engineInfo = await res.json();
     cfgEngine.innerHTML = engineInfo.engines.map(e =>
-      `<option value="${e.id}"${e.id === engineInfo.active_engine ? ' selected' : ''}>${e.name}${e.installed ? '' : ' (not installed)'}</option>`
+      `<option value="${e.id}"${e.id === engineInfo.active_engine ? ' selected' : ''}>${e.name}${e.experimental ? ' [Experimental]' : ''}${e.installed ? '' : ' (not installed)'}</option>`
     ).join('');
     updateModelSelect();
     updateEngineInstallUI();
     const active = engineInfo.engines.find(e => e.id === engineInfo.active_engine);
     if (active) populateLangSelect(active.languages, engineInfo.language);
     if (engineInfo.install_job && !engineInfo.install_job.done) pollInstall();
-
+    
     if (engineInfo.engines.length && engineInfo.engines.every(e => !e.installed)) {
       if (engineInfo.wizard_done) {
         setStatus('error', 'No engine installed. Pick one and click Install');
@@ -119,6 +122,8 @@ function updateEngineInstallUI() {
   const eng = selectedEngine();
   const row = document.getElementById('cfg-engine-install');
   const uninstall = document.getElementById('cfg-uninstall-btn');
+  const experimental = document.getElementById('cfg-engine-experimental');
+  experimental.style.display = (eng && eng.experimental) ? 'flex' : 'none';
   uninstall.style.display = (eng && eng.installed && eng.source === 'installed') ? '' : 'none';
   if (!eng || eng.installed) { row.style.display = 'none'; return; }
   row.style.display = '';
@@ -395,12 +400,12 @@ function hideTranslateBanner() {
 }
 
 function noteTranslationFailure(detail) {
-  if (!translationEnabled) return;
+  if (!translationEnabled) return; 
   if (++translationFailures < TRANSLATION_FAILURE_LIMIT) return;
   translationEnabled = false;
   translateToggle.checked = false;
   translationFailures = 0;
-
+  
   translateBannerText.textContent =
     `Translation disabled after ${TRANSLATION_FAILURE_LIMIT} consecutive failures: ${detail}`;
   translateBanner.hidden = false;
@@ -507,10 +512,15 @@ const SOFT_LENGTH_LIMIT = 30;
 
 const OSC_MAX_CHARS = 144;
 
+function endsWithSentenceEnder(text) {
+  if (SENTENCE_ENDERS.test(text.slice(-2))) return true;
+  return text.endsWith('.') && !/\d\.$/.test(text);
+}
+
 function updateActiveLine(text) {
   ensureActiveLine();
   activeLine.querySelector('.text').textContent = text;
-  if (text.length >= SOFT_LENGTH_LIMIT && SENTENCE_ENDERS.test(text.slice(-2))) {
+  if (text.length >= SOFT_LENGTH_LIMIT && endsWithSentenceEnder(text)) {
     if (activeLineTimer) { clearTimeout(activeLineTimer); activeLineTimer = null; }
     commitActiveLine();
   } else {
@@ -533,7 +543,7 @@ function handleServerMessage(event) {
       if (count > lineCount) commitActiveLine();
       lineCount = count;
       shownChars = 0;
-      lastCommittedText = '';
+      lastCommittedText = ''; 
     }
 
     const fullText = latest.text.trim();
@@ -615,7 +625,7 @@ function openControlWs() {
   });
   controlWs.addEventListener('close', () => {
     if (userClosing) return;
-
+    
     setStatus('connecting', 'Reconnecting...');
     startStartupPolling();
     setTimeout(async () => {
@@ -660,14 +670,14 @@ function populateDeviceSelect() {
   deviceSelect.innerHTML = list.length
     ? list.map(d => `<option value="${d.index}">${d.name}</option>`).join('')
     : `<option value="">No ${sourceMode} devices</option>`;
-
+  
   const match = list.find(d => d.name === savedDeviceNames[sourceMode]);
   if (match) deviceSelect.value = String(match.index);
 }
 
 function saveDeviceChoice() {
   const body = { source_mode: sourceMode };
-
+  
   if (deviceSelect.value !== '') {
     const name = deviceSelect.selectedOptions[0]?.text || '';
     savedDeviceNames[sourceMode] = name;
@@ -712,7 +722,7 @@ function startStartupPolling() {
   startupPollTimer = setInterval(async () => {
     try {
       const s = await (await fetch('/engine/startup')).json();
-      if (statusDot.className !== 'connecting') return;
+      if (statusDot.className !== 'connecting') return; 
       if (s.phase === 'downloading') {
         setStatus('connecting', `Downloading model: ${s.detail || '...'}`);
       } else if (s.phase === 'loading') {
@@ -838,6 +848,8 @@ checkForUpdate();
       loopback: c.loopback_device_name || '',
     };
     levelSlider.value = Math.round((c.min_sound_level || 0) * 100);
+    levelValue.textContent = `${levelSlider.value}%`;
+    if (typeof c.suppress_osc_when_muted === 'boolean') muteSuppress.checked = c.suppress_osc_when_muted;
     if (c.source_mode === 'loopback') applySourceMode('loopback');
   } catch {  }
   await loadDevices();
@@ -845,18 +857,30 @@ checkForUpdate();
 })();
 
 sourceLangSelect.addEventListener('change', (e) => {
-  userClosing = false;
+  userClosing = false; 
   if (isCapturing()) setStatus('connecting', 'Restarting...');
   sendControl({ action: 'set_language', language: e.target.value });
 });
 
 deviceSelect.addEventListener('change', onDeviceChanged);
 
+levelSlider.addEventListener('input', () => {
+  levelValue.textContent = `${levelSlider.value}%`;
+});
+
 levelSlider.addEventListener('change', () => {
   fetch('/config', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ min_sound_level: levelSlider.value / 100 }),
+  }).catch(() => {});
+});
+
+muteSuppress.addEventListener('change', () => {
+  fetch('/config', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ suppress_osc_when_muted: muteSuppress.checked }),
   }).catch(() => {});
 });
 
@@ -873,6 +897,24 @@ targetLangSelect.addEventListener('change', () => {
   }
 });
 
+const hasOption = (select, value) =>
+  [...select.options].some(o => o.value === value);
+
+swapLangBtn.addEventListener('click', () => {
+  const newTarget = TRANSCRIPTION_TO_TRANSLATION_SOURCE[sourceLangSelect.value] || '';
+  const newSource = targetLangSelect.value.split('-')[0];
+  if (!hasOption(sourceLangSelect, newSource) || !hasOption(targetLangSelect, newTarget)) {
+    
+    setStatus('', "Can't swap these two languages");
+    return;
+  }
+  if (newSource === sourceLangSelect.value && newTarget === targetLangSelect.value) return;
+  sourceLangSelect.value = newSource;
+  targetLangSelect.value = newTarget;
+  sourceLangSelect.dispatchEvent(new Event('change'));
+  targetLangSelect.dispatchEvent(new Event('change'));
+});
+
 oscToggle.addEventListener('change', () => {
   if (!oscToggle.checked) {
     sendControl({ action: 'osc_typing', flag: false });
@@ -881,7 +923,7 @@ oscToggle.addEventListener('change', () => {
 
 translateToggle.addEventListener('change', () => {
   translationEnabled = translateToggle.checked;
-  translationFailures = 0;
+  translationFailures = 0; 
   hideTranslateBanner();
 });
 
@@ -924,7 +966,7 @@ function openWizard() {
     wizEngineChoice = c.dataset.engine;
     box.querySelectorAll('.wiz-engine-card').forEach(x => x.classList.toggle('selected', x === c));
   }));
-
+  
   if (engineInfo.install_job && !engineInfo.install_job.done) {
     wizardStep('wiz-step-install');
     wizardPollInstall();
@@ -934,7 +976,7 @@ function openWizard() {
 }
 
 function closeWizard() {
-
+  
   if (engineInfo) engineInfo.wizard_done = true;
   fetch('/config', {
     method: 'POST',
@@ -1016,7 +1058,7 @@ document.getElementById('wiz-install').addEventListener('click', async () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ engine: wizEngineChoice })
     });
-
+    
     if (!res.ok && res.status !== 409) {
       const p = await res.json().catch(() => ({}));
       throw new Error(p.detail || 'Install failed to start');
@@ -1033,7 +1075,7 @@ document.getElementById('wiz-finish').addEventListener('click', async () => {
   const wizDevice = document.getElementById('wiz-device');
   applySourceMode(wizMode);
   if (wizDevice.value !== '') deviceSelect.value = wizDevice.value;
-  onDeviceChanged();
+  onDeviceChanged(); 
   const eng = engineInfo.engines.find(e => e.id === wizEngineChoice);
   await sendControl({
     action: 'set_engine', engine: wizEngineChoice,
@@ -1051,7 +1093,7 @@ document.getElementById('wiz-finish').addEventListener('click', async () => {
   translateToggle.checked = wantTranslate;
   translationEnabled = wantTranslate;
   closeWizard();
-
+  
   if (wizEngineChoice === 'parakeet' && lang === 'ja') {
     try {
       const info = await (await fetch('/models?engine=parakeet')).json();
@@ -1133,7 +1175,7 @@ function switchSettingsPage(page) {
     b.classList.toggle('active', b.dataset.page === page));
   document.querySelectorAll('.settings-page').forEach(s =>
     s.classList.toggle('active', s.id === `page-${page}`));
-
+  
   configFooter.style.display = (page === 'translation' || page === 'phrases') ? '' : 'none';
   document.getElementById('config-body').scrollTop = 0;
 }
@@ -1189,7 +1231,7 @@ cfgBackend.addEventListener('change', updateConfigSections);
 
 cfgSave.addEventListener('click', async () => {
   cfgStatus.textContent = '';
-  translationFailures = 0;
+  translationFailures = 0; 
   hideTranslateBanner();
   try {
     await fetch('/config', {

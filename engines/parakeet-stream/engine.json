@@ -1,0 +1,12 @@
+{
+  "id": "parakeet-stream",
+  "name": "Parakeet Streaming (low latency)",
+  "protocol": 1,
+  "experimental": true,
+  "entry": "engine_server.py",
+  "python": "python/python.exe",
+  "models_engine": "parakeet",
+  "languages": ["en", "ja", "de", "fr", "es", "pt", "it", "nl", "ru", "uk", "pl", "cs", "sk", "sl", "bg", "hr", "ro", "hu", "el", "da", "sv", "fi", "et", "lv", "lt", "mt"],
+  "models": ["default"],
+  "default_model": "default"
+}

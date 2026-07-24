@@ -116,7 +116,7 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   transform: translate(-50%, -48%) scale(0.97);
   width: 640px;
   max-width: calc(100vw - 32px);
-
+  
   height: min(600px, 85vh);
   background: #1a1a1a;
   border: 1px solid #2a2a2a;
@@ -314,7 +314,7 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   resize: vertical;
   font-family: inherit;
   line-height: 1.5;
-  min-height: 84px;
+  min-height: 84px; 
 }
 
 .config-section {
@@ -466,6 +466,19 @@ ul.credits .desc { color: #555; }
   margin-left: 8px;
   white-space: nowrap;
 }
+
+#cfg-engine-experimental { margin-top: 8px; display: flex; align-items: center; gap: 8px; }
+.exp-badge {
+  font-size: 10px;
+  color: #e0b95e;
+  border: 1px solid #b8892f;
+  padding: 1px 7px;
+  border-radius: 10px;
+  white-space: nowrap;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.exp-text { font-size: 11px; color: #8a7a4a; }
 
 .wiz-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 10px; }
 .wiz-actions .wiz-secondary { margin-right: auto; }

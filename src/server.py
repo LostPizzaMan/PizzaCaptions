@@ -22,6 +22,8 @@ import websockets
 from fastapi import Body, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from pythonosc.dispatcher import Dispatcher
+from pythonosc.osc_server import ThreadingOSCUDPServer
 from pythonosc.udp_client import SimpleUDPClient
 
 import engine_install
@@ -32,7 +34,7 @@ from hallucinations import DEFAULT_BLOCKED_PHRASES
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
-APP_VERSION = "0.2.0"
+APP_VERSION = "0.2.1"
 
 SAMPLE_RATE = 16000
 CHUNK = 4096
@@ -40,6 +42,7 @@ GATE_HOLD_S = 0.4
 UI_PORT = 3011
 VRC_OSC_IP = "127.0.0.1"
 VRC_OSC_PORT = 9000
+VRC_OSC_LISTEN_PORT = 9001
 BASE_DIR = Path(__file__).resolve().parent.parent
 WEB_DIR = BASE_DIR / "web"
 
@@ -172,6 +175,8 @@ class EngineManager:
         port = _free_port()
         if manifest.get("models_dir"):
             models_dir = (edir / manifest["models_dir"]).resolve()
+        elif manifest.get("models_engine"):
+            models_dir = engine_install.MODELS_DIR / manifest["models_engine"]
         else:
             models_dir = engine_install.MODELS_DIR / engine_id
         cmd = [str(python), str(edir / manifest["entry"]),
@@ -251,6 +256,8 @@ _min_sound_level = 0.0
 
 _wizard_done = False
 
+_suppress_osc_when_muted = True
+
 
 def _model_for(engine_id: str) -> str:
     manifest = _engine_mgr.manifests.get(engine_id, {})
@@ -283,7 +290,7 @@ def _load_config():
     global _blocked_phrases, _active_engine, _engine_models
     global _stt_language, _target_language
     global _source_mode, _mic_device_name, _loopback_device_name
-    global _min_sound_level, _wizard_done
+    global _min_sound_level, _wizard_done, _suppress_osc_when_muted
     if not _CONFIG_FILE.exists():
         return
     try:
@@ -313,6 +320,8 @@ def _load_config():
             _min_sound_level = min(1.0, max(0.0, float(cfg["min_sound_level"])))
         if isinstance(cfg.get("wizard_done"), bool):
             _wizard_done = cfg["wizard_done"]
+        if isinstance(cfg.get("suppress_osc_when_muted"), bool):
+            _suppress_osc_when_muted = cfg["suppress_osc_when_muted"]
     except Exception as e:
         logger.warning("Failed to load config.json: %s", e)
 
@@ -329,7 +338,9 @@ _load_config()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    start_osc_receiver()
     yield
+    stop_osc_receiver()
     stop_capture()
     _engine_mgr.stop()
 
@@ -367,8 +378,47 @@ async def no_cache(request, call_next):
 
 _osc_client = SimpleUDPClient(VRC_OSC_IP, VRC_OSC_PORT)
 
+_vrc_muted = False
+_osc_server: ThreadingOSCUDPServer | None = None
+
+
+def _on_mute_self(_address, *args):
+    global _vrc_muted
+    if args:
+        _vrc_muted = bool(args[0])
+
+
+def _muted_and_suppressed() -> bool:
+    return _suppress_osc_when_muted and _vrc_muted
+
+
+def start_osc_receiver():
+
+    global _osc_server
+    if _osc_server is not None:
+        return
+    disp = Dispatcher()
+    disp.map("/avatar/parameters/MuteSelf", _on_mute_self)
+    try:
+        _osc_server = ThreadingOSCUDPServer((VRC_OSC_IP, VRC_OSC_LISTEN_PORT), disp)
+    except OSError as e:
+        logger.warning("OSC receiver unavailable on %s:%d (%s); mute-aware OSC disabled",
+                       VRC_OSC_IP, VRC_OSC_LISTEN_PORT, e)
+        return
+    threading.Thread(target=_osc_server.serve_forever, name="osc-receiver", daemon=True).start()
+
+
+def stop_osc_receiver():
+    global _osc_server
+    if _osc_server is not None:
+        _osc_server.shutdown()
+        _osc_server.server_close()
+        _osc_server = None
+
 
 def send_osc(text: str):
+    if _muted_and_suppressed():
+        return
     try:
         _osc_client.send_message("/chatbox/input", [text, True, False])
     except Exception as e:
@@ -376,6 +426,8 @@ def send_osc(text: str):
 
 
 def send_osc_typing(flag: bool):
+    if flag and _muted_and_suppressed():
+        return
     try:
         _osc_client.send_message("/chatbox/typing", flag)
     except Exception as e:
@@ -657,8 +709,9 @@ def engines():
                 "default_model": m.get("default_model"),
                 "installed": m["_available"],
                 "source": m["_source"],
+                "experimental": bool(m.get("experimental")),
             }
-            for m in _engine_mgr.manifests.values()
+            for m in sorted(_engine_mgr.manifests.values(), key=lambda m: bool(m.get("experimental")))
         ],
         "active_engine": _active_engine,
         "engine_models": _engine_models,
@@ -739,6 +792,8 @@ def _parakeet_active_model() -> str:
 @app.get("/models")
 def list_models(engine: str):
     items = []
+    if engine == "parakeet-stream":
+        engine = "parakeet"
     if engine == "whisper":
         manifest = _engine_mgr.manifests.get("whisper", {})
         active = _model_for("whisper")
@@ -771,6 +826,8 @@ def list_models(engine: str):
 @app.post("/models/download")
 async def model_download(payload: dict = Body(...)):
     engine, model = payload.get("engine"), payload.get("model")
+    if engine == "parakeet-stream":
+        engine = "parakeet"
     if engine != "parakeet" or model not in engine_install.PARAKEET_MODEL_ARCHIVES:
         raise HTTPException(status_code=400, detail="Only parakeet models are downloaded here; whisper models download on first use")
     if not engine_install.start_model_download(model):
@@ -781,9 +838,13 @@ async def model_download(payload: dict = Body(...)):
 @app.post("/models/delete")
 async def model_delete(payload: dict = Body(...)):
     engine, model = payload.get("engine"), payload.get("model")
-    if _engine_mgr.running() and _engine_mgr.engine_id == engine:
-        in_use = (engine == "whisper" and _engine_mgr.model == model) or \
-                 (engine == "parakeet" and _parakeet_active_model() == model)
+    if engine == "parakeet-stream":
+        engine = "parakeet"
+    if _engine_mgr.running():
+        running = _engine_mgr.engine_id
+        in_use = (engine == "whisper" and running == "whisper" and _engine_mgr.model == model) or \
+                 (engine == "parakeet" and running in ("parakeet", "parakeet-stream")
+                  and _parakeet_active_model() == model)
         if in_use:
             raise HTTPException(status_code=409, detail="Model is in use. Stop capture or switch model/language first")
     if engine == "whisper":
@@ -855,6 +916,7 @@ def get_config():
         "loopback_device_name":   _loopback_device_name,
         "min_sound_level":        _min_sound_level,
         "wizard_done":            _wizard_done,
+        "suppress_osc_when_muted": _suppress_osc_when_muted,
     }
 
 
@@ -862,7 +924,7 @@ def get_config():
 async def set_config(payload: dict = Body(...)):
     global _blocked_phrases, _target_language
     global _source_mode, _mic_device_name, _loopback_device_name
-    global _min_sound_level, _wizard_done
+    global _min_sound_level, _wizard_done, _suppress_osc_when_muted
     m = _translate_module
     supported_backends = set(m._BACKENDS)
     backend = payload.get("translation_backend")
@@ -883,6 +945,8 @@ async def set_config(payload: dict = Body(...)):
         _min_sound_level = float(v)
     if isinstance(payload.get("wizard_done"), bool):
         _wizard_done = payload["wizard_done"]
+    if isinstance(payload.get("suppress_osc_when_muted"), bool):
+        _suppress_osc_when_muted = payload["suppress_osc_when_muted"]
     if "blocked_phrases" in payload:
         raw = payload["blocked_phrases"]
         if not isinstance(raw, list):

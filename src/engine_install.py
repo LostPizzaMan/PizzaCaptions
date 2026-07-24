@@ -209,6 +209,8 @@ def install(engine_id: str, source_dir: Path, repo_dir: Path):
         if engine_id == "parakeet":
             _install_parakeet_models(repo_dir / "stt-parakeet" / "models")
             manifest["models_dir"] = "../../models/parakeet"
+        elif engine_id == "parakeet-stream":
+            _install_parakeet_models(repo_dir / "stt-parakeet" / "models")
 
         manifest["python"] = "python/python.exe"
         manifest["installed"] = True

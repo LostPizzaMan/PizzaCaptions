@@ -41,7 +41,7 @@
     <option value="nl">Dutch</option>
     <option value="auto">Auto</option>
   </select>
-  <span style="font-size:13px;color:#666;">→</span>
+  <button id="btn-swap-lang" title="Swap source and target languages" style="background:#1a1a1a;border:1px solid #333;border-radius:6px;color:#999;font-size:14px;padding:5px 9px;cursor:pointer;line-height:1;">⇄</button>
   <select id="target-lang-select" style="background:#1a1a1a;border:1px solid #333;border-radius:6px;color:#ccc;font-size:13px;padding:5px 10px;">
     <option value="en-US" selected>English</option>
     <option value="ja-JP">Japanese</option>
@@ -93,6 +93,10 @@
     <section class="settings-page active" id="page-engine">
     <label class="config-label">Transcription Engine <span style="color:#555;font-size:11px;">(applies immediately)</span></label>
     <select id="cfg-engine"></select>
+    <div id="cfg-engine-experimental" style="display:none;">
+      <span class="exp-badge">Experimental</span>
+      <span class="exp-text">Preview feature - may be rough or change, and uses more CPU than the standard engine.</span>
+    </div>
     <div id="cfg-engine-install" style="display:none;margin-top:8px;">
       <button id="cfg-install-btn" style="background:#685EBD;border:none;border-radius:6px;color:#fff;font-size:12px;padding:6px 12px;cursor:pointer;">Install engine</button>
       <span id="cfg-install-progress" style="font-size:12px;color:#888;margin-left:8px;font-family:Consolas,'Courier New',monospace;"></span>
@@ -109,7 +113,7 @@
     </section>
 
     <section class="settings-page" id="page-audio">
-    <label class="config-label">Noise Gate <span style="color:#555;font-size:11px;">(applies immediately)</span></label>
+    <label class="config-label">Noise Gate <span style="color:#555;font-size:11px;">(applies immediately)</span><span id="level-value" style="float:right;color:#999;font-size:12px;font-family:Consolas,'Courier New',monospace;">0%</span></label>
     <div id="level-meter" title="Input level. Drag the marker to set the minimum sound level; quieter audio is ignored.">
       <div id="level-bar"></div>
       <input type="range" id="level-slider" min="0" max="100" value="0" />
@@ -119,6 +123,16 @@
       noise, or a TV in the room. Start capture to see the live level, then drag the
       marker just above where the bar sits while you are not speaking. All the way
       left turns the gate off.
+    </div>
+
+    <label class="config-label" style="margin-top:16px;">VRChat OSC</label>
+    <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:#ccc;cursor:pointer;">
+      <input type="checkbox" id="cfg-mute-suppress" style="cursor:pointer;" checked />
+      Silence captions while self-muted in VRChat
+    </label>
+    <div style="font-size:11px;color:#555;line-height:1.5;margin-top:4px;">
+      When you mute your mic in VRChat, stop sending captions to the chatbox until
+      you unmute. Requires OSC enabled in VRChat.
     </div>
     </section>
 
