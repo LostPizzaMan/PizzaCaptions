@@ -5,7 +5,7 @@
 
 ![screenshot](screenshot.png)
 
-Real-time speech transcription and translation running entirely on your machine. Captures audio from a microphone or system loopback (speaker output), transcribes with your choice of STT engine ([WhisperLiveKit](https://github.com/QuentinFuxa/WhisperLiveKit) or [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) with NVIDIA Parakeet), and optionally translates and forwards to VRChat via OSC.
+Real-time speech transcription and translation running entirely on your machine. Captures audio from a microphone or system loopback (speaker output), transcribes with your choice of STT engine ([WhisperLiveKit](https://github.com/QuentinFuxa/WhisperLiveKit) or [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) with NVIDIA Parakeet), and optionally translates and forwards to VRChat via OSC. It can also speak for you, so you can hold a conversation in VRChat without using your voice.
 
 ## Features
 
@@ -13,6 +13,7 @@ Real-time speech transcription and translation running entirely on your machine.
 - **Swappable engines** - Whisper for accuracy, Parakeet for speed on any PC
 - **Mic or loopback** - capture your voice or anything playing through your speakers
 - **Translation** - multiple backends with in-app configuration
+- **Text to speech** - optional, speak in VRChat without using your voice
 - **VRChat OSC** - send transcription/translation directly to the chatbox
 - **Portable** - no Python install needed; everything runs from the extracted folder
 
@@ -25,12 +26,14 @@ Real-time speech transcription and translation running entirely on your machine.
 
 1. Download the portable zip and extract the **whole folder** (don't run from inside the zip).
 2. Double-click **`Start LiveTranscription.bat`**. A console window stays open showing what the app is doing.
-3. First run: open Settings (**⚙**) and install a transcription engine:
+3. First run: a setup wizard walks you through it, starting with which engine to install:
 
 | Engine | Best for | Download |
 |---|---|---|
 | **Parakeet** (sherpa-onnx) | Fast on any PC, no GPU needed. English, Japanese + 24 European languages | ~200 MB + models |
+| **Parakeet Streaming** (experimental) | The same models, but captions appear as you speak instead of after each pause | Shares Parakeet's models |
 | **Whisper** (WhisperLiveKit) | Best accuracy, wants an NVIDIA GPU. ~All languages | ~2.5 GB + models |
+| **Fun-ASR-Nano** (experimental) | Accuracy on CPU, if you can wait a second or two after each phrase. English, Japanese, Chinese | ~1.3 GB |
 
 4. Optional: pick a translation backend in Settings and enable **Translate**.
 
@@ -43,6 +46,19 @@ Download the new zip, extract it, and delete the old folder. Your settings, inst
 ## VRChat
 
 Enable the **VRChat OSC** checkbox to send captions to your chatbox. OSC must be enabled in VRChat's action menu (Options → OSC → Enabled).
+
+## Text to speech
+
+Optional. Type a line, or have each caption voiced automatically, and the app speaks it into a virtual audio cable that VRChat uses as its microphone. Install a voice pack in Settings → **Voices**:
+
+| Voice pack | Language | Notes |
+|---|---|---|
+| **Kokoro** | English | Neural, runs on CPU |
+| **Kokoro Japanese** | Japanese | Neural, runs on CPU |
+| **VOICEVOX** | Japanese | 200+ character voices, each with its own credit requirement |
+| **Windows Voices** (experimental) | Whatever your OS has | Nothing to download |
+
+You need a virtual audio cable (such as VB-Audio Cable) selected as VRChat's input device. Mic passthru can bridge your real microphone into that same cable, so you can still talk normally alongside it.
 
 ## Translation Backends
 
