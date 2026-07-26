@@ -5,7 +5,7 @@
 
 ![screenshot](screenshot.png)
 
-Real-time speech transcription and translation running entirely on your machine. Captures audio from a microphone or system loopback (speaker output), transcribes with your choice of STT engine ([WhisperLiveKit](https://github.com/QuentinFuxa/WhisperLiveKit) or [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) with NVIDIA Parakeet), and optionally translates and forwards to VRChat via OSC. It can also speak for you, so you can hold a conversation in VRChat without using your voice.
+Real-time speech transcription and translation running entirely on your machine. Captures audio from a microphone or system loopback (speaker output), transcribes with your choice of STT engine ([WhisperLiveKit](https://github.com/QuentinFuxa/WhisperLiveKit) or [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) with NVIDIA Parakeet), and optionally translates and forwards to VRChat via OSC.
 
 ## Features
 
