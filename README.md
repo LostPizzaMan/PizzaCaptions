@@ -34,7 +34,11 @@ Real-time speech transcription and translation running entirely on your machine.
 
 4. Optional: pick a translation backend in Settings and enable **Translate**.
 
-Engines and models install under `%LOCALAPPDATA%\LiveTranscription` (manage them in Settings → Engine); config and logs live in `%APPDATA%\LiveTranscription`. Updating the app = replace the extracted folder. Your settings, engines, and models survive.
+Engines and models install under `%LOCALAPPDATA%\LiveTranscription` (manage them in Settings → Engine); config and logs live in `%APPDATA%\LiveTranscription`.
+
+## Updating
+
+Download the new zip, extract it, and delete the old folder. Your settings, installed engines, and downloaded models live outside the app folder, so they carry over untouched. The app checks GitHub for new releases and puts a badge on **⚙** when one is out.
 
 ## VRChat
 
