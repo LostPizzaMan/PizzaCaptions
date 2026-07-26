@@ -1,5 +1,6 @@
 {
   "id": "parakeet-stream",
+  "kind": "asr",
   "name": "Parakeet Streaming (low latency)",
   "protocol": 1,
   "experimental": true,

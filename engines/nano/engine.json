@@ -1,0 +1,12 @@
+{
+  "id": "nano",
+  "kind": "asr",
+  "name": "Fun-ASR-Nano (accurate, CPU, no GPU)",
+  "protocol": 1,
+  "experimental": true,
+  "entry": "engine_server.py",
+  "python": "python/python.exe",
+  "languages": ["en", "ja", "zh"],
+  "models": ["default"],
+  "default_model": "default"
+}

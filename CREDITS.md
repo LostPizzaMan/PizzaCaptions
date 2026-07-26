@@ -19,6 +19,29 @@ Pizza Captions is built on the following open-source projects and models.
 - **[Silero VAD](https://github.com/snakers4/silero-vad)** - MIT
   Voice activity detection.
 
+## Text to speech
+
+- **[Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M)** - Apache-2.0
+  Neural TTS voices (English and Japanese), run via
+  [kokoro-onnx](https://github.com/thewh1teagle/kokoro-onnx) (MIT). The Japanese
+  voice adds [pyopenjtalk](https://github.com/r9y9/pyopenjtalk) (MIT) and
+  [misaki](https://github.com/hexgrad/misaki) for correct kanji readings.
+
+- **[VOICEVOX](https://voicevox.hiroshiba.jp/)** - Powered by VOICEVOX.
+  Japanese neural TTS via [voicevox_core](https://github.com/VOICEVOX/voicevox_core)
+  (MIT), with voicevox_onnxruntime and the Open JTalk dictionary. These, and the
+  voice models, are downloaded from the official source at runtime and are **not
+  redistributed** with this app. Each character voice has its own terms: audio you
+  publish must credit the character as `VOICEVOX:キャラクター名`
+  (e.g. `VOICEVOX:ずんだもん`). The app shows and copies the exact credit for the
+  voice in use.
+
+- **[Open JTalk](http://open-jtalk.sourceforge.net/)** - Modified BSD.
+  Japanese pronunciation dictionary, used by the VOICEVOX and Kokoro Japanese voices.
+
+- **Windows voices** - the operating system's built-in speech voices, accessed via
+  [winsdk](https://pypi.org/project/winsdk/) (MIT). Nothing is bundled.
+
 ## Application
 
 - **[FastAPI](https://fastapi.tiangolo.com/)** - MIT

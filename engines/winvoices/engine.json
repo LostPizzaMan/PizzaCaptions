@@ -1,0 +1,14 @@
+{
+  "id": "winvoices",
+  "kind": "tts",
+  "name": "Windows Voices (built-in)",
+  "protocol": 1,
+  "entry": "engine_server.py",
+  "python": "python/python.exe",
+  "languages": ["en", "ja"],
+  "voices": [],
+  "dynamic_voices": true,
+  "default_voice": "",
+  "models": [],
+  "default_model": "default"
+}

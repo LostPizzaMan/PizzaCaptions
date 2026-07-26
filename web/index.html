@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Live Transcription</title>
-  <link rel="stylesheet" href="/styles.css?v=4" />
+  <link rel="stylesheet" href="/styles.css?v=15" />
 </head>
 <body>
 
@@ -63,8 +63,21 @@
   <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:#aaa;cursor:pointer;">
     <input type="checkbox" id="translate-toggle" style="cursor:pointer;"> Translate
   </label>
+  <label id="speak-toggle-label" style="display:none;align-items:center;gap:6px;font-size:13px;color:#aaa;cursor:pointer;" title="Voice each finalized caption line aloud via TTS">
+    <input type="checkbox" id="speak-toggle" style="cursor:pointer;"> Auto-TTS
+  </label>
+  <span id="tts-credit-chip" title="Credit this voice wherever you publish the audio; click it to open the voice's terms">
+    <a id="tts-credit-chip-link" href="#" target="_blank" rel="noopener"><code id="tts-credit-chip-text"></code></a>
+    <button id="tts-credit-chip-copy" title="Copy credit">⧉</button>
+  </span>
   <span id="mic-label"></span>
+  <button id="btn-speak" title="Text-to-speech" style="display:none;background:#1a1a1a;border:1px solid #333;border-radius:6px;color:#ccc;font-size:13px;padding:5px 12px;cursor:pointer;">🔊 TTS</button>
   <button id="btn-config" title="Translation settings">⚙</button>
+</div>
+
+<div id="gate-line" title="Live input level vs your noise gate. Green = passing the gate; grey = below it (ignored). Set the threshold in Settings &rsaquo; Audio.">
+  <div id="gate-line-fill"></div>
+  <div id="gate-line-mark"></div>
 </div>
 
 <div id="translate-banner" hidden>
@@ -112,6 +125,43 @@
     <div id="cfg-models-footer" style="font-size:11px;color:#555;font-family:Consolas,'Courier New',monospace;"></div>
     </section>
 
+    <section class="settings-page" id="page-voices">
+    <label class="config-label">Voices <span style="color:#555;font-size:11px;">(text-to-speech · optional)</span></label>
+    <p style="font-size:11px;color:#777;line-height:1.5;margin:0 0 4px;">
+      Adds a “🔊 TTS” voice you can type into, or have it auto-voice your captions.
+      Play it on your speakers, or route it into VRChat with VB-Audio Cable.
+    </p>
+    <div id="cfg-tts-list"></div>
+    <span id="cfg-tts-progress" style="font-size:12px;color:#888;font-family:Consolas,'Courier New',monospace;"></span>
+
+    
+    <div id="cfg-tts-agree" style="display:none;margin-top:10px;padding:10px;border:1px solid #3a3a3a;border-radius:8px;background:#181818;">
+      <div class="config-label" id="cfg-tts-agree-title" style="margin:0 0 6px;">License terms</div>
+      <p id="cfg-tts-agree-summary" style="font-size:11px;color:#aaa;line-height:1.6;margin:0 0 8px;"></p>
+      <div id="cfg-tts-agree-links" style="font-size:11px;margin:0 0 8px;display:flex;flex-direction:column;gap:3px;"></div>
+      <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:#ccc;cursor:pointer;">
+        <input type="checkbox" id="cfg-tts-agree-box"> I have read and accept these terms.
+      </label>
+      <div style="display:flex;gap:8px;margin-top:10px;">
+        <button id="cfg-tts-agree-continue" disabled style="background:#685EBD;border:none;border-radius:6px;color:#fff;font-size:12px;padding:6px 12px;cursor:pointer;">Accept &amp; download</button>
+        <button id="cfg-tts-agree-cancel" style="background:#2a2a2a;border:1px solid #3a3a3a;border-radius:6px;color:#ccc;font-size:12px;padding:6px 12px;cursor:pointer;">Cancel</button>
+      </div>
+    </div>
+
+    
+    <div id="cfg-tts-catalog-section" style="display:none;margin-top:14px;">
+      <label class="config-label">Add Japanese voices <span style="color:#555;font-size:11px;">(VOICEVOX)</span></label>
+      <p style="font-size:11px;color:#777;line-height:1.5;margin:0 0 6px;">
+        Download more characters on demand (~60 MB per model file; some files bundle
+        several characters). Credit each clip you publish as shown, e.g. “VOICEVOX:ずんだもん”.
+      </p>
+      <input id="cfg-tts-catalog-filter" type="text" placeholder="Filter characters…"
+        style="width:100%;box-sizing:border-box;margin:0 0 8px;background:#181818;border:1px solid #333;border-radius:6px;color:#ddd;font-size:12px;padding:6px 8px;" />
+      <span id="cfg-tts-catalog-progress" style="font-size:12px;color:#888;font-family:Consolas,'Courier New',monospace;"></span>
+      <div id="cfg-tts-catalog-list"></div>
+    </div>
+    </section>
+
     <section class="settings-page" id="page-audio">
     <label class="config-label">Noise Gate <span style="color:#555;font-size:11px;">(applies immediately)</span><span id="level-value" style="float:right;color:#999;font-size:12px;font-family:Consolas,'Courier New',monospace;">0%</span></label>
     <div id="level-meter" title="Input level. Drag the marker to set the minimum sound level; quieter audio is ignored.">
@@ -133,6 +183,17 @@
     <div style="font-size:11px;color:#555;line-height:1.5;margin-top:4px;">
       When you mute your mic in VRChat, stop sending captions to the chatbox until
       you unmute. Requires OSC enabled in VRChat.
+    </div>
+
+    <label class="config-label" style="margin-top:16px;">Diagnostics</label>
+    <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:#ccc;cursor:pointer;">
+      <input type="checkbox" id="cfg-latency-hud" style="cursor:pointer;" />
+      Show latency readout
+    </label>
+    <div style="font-size:11px;color:#555;line-height:1.5;margin-top:4px;">
+      A small corner overlay showing the last line's processing time per stage
+      (STT + Translate + TTS). This is compute time only, not the felt end-to-end
+      delay, so it excludes the pause the app waits out before a line is final.
     </div>
     </section>
 
@@ -182,7 +243,13 @@
       <label class="config-label">URL</label>
       <input id="cfg-lmstudio-url" type="text" />
       <label class="config-label" style="margin-top:10px;">Model</label>
-      <input id="cfg-lmstudio-model" type="text" />
+      <div style="display:flex;gap:6px;align-items:center;">
+        <select id="cfg-lmstudio-model" style="flex:1;min-width:0;"></select>
+        <button id="cfg-lmstudio-refresh" type="button" title="Re-read the model list from LM Studio"
+                style="background:#1a1a1a;border:1px solid #333;border-radius:6px;color:#999;
+                       font-size:13px;padding:6px 10px;cursor:pointer;line-height:1;flex:none;">↻</button>
+      </div>
+      <div id="cfg-lmstudio-model-note" style="font-size:11px;color:#555;line-height:1.5;margin-top:4px;"></div>
       <label class="config-label" style="margin-top:10px;">Temperature</label>
       <input id="cfg-lmstudio-temp" type="number" min="0" max="2" step="0.1" />
     </div>
@@ -205,7 +272,7 @@
     </section>
 
     <section class="settings-page" id="page-phrases">
-    <label class="config-label">Blocked Phrases <span style="color:#555;font-size:11px;">(one per line; lines containing these are ignored. Common Whisper hallucinations are blocked by default)</span></label>
+    <label class="config-label">Blocked Phrases <span style="color:#555;font-size:11px;">(one per line, matched as whole words; these are cut out of a line, and a line that is nothing else is dropped. Common Whisper hallucinations are blocked by default)</span></label>
     <textarea id="cfg-blocked-phrases" rows="4" placeholder="e.g. Thanks for watching"></textarea>
     </section>
 
@@ -225,6 +292,24 @@
         <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank">Creative Commons Attribution 4.0 International License</a>.</span></li>
       <li><a href="https://github.com/snakers4/silero-vad" target="_blank">Silero VAD</a> &middot; <span class="lic">MIT</span><br>
         <span class="desc">Voice activity detection.</span></li>
+    </ul>
+
+    <div class="credits-head">Text to speech</div>
+    <ul class="credits">
+      <li><a href="https://huggingface.co/hexgrad/Kokoro-82M" target="_blank">Kokoro-82M</a> &middot; <span class="lic">Apache-2.0</span><br>
+        <span class="desc">Neural TTS voices (English and Japanese) via
+        <a href="https://github.com/thewh1teagle/kokoro-onnx" target="_blank">kokoro-onnx</a> (MIT).</span></li>
+      <li><a href="https://voicevox.hiroshiba.jp/" target="_blank">VOICEVOX</a> &middot; <span class="lic">Powered by VOICEVOX</span><br>
+        <span class="desc">Japanese neural TTS via
+        <a href="https://github.com/VOICEVOX/voicevox_core" target="_blank">voicevox_core</a> (MIT),
+        with voicevox_onnxruntime and the Open JTalk dictionary, all fetched from the official
+        source at runtime (not redistributed). Each character voice has its own terms; audio you
+        publish must credit the character as &ldquo;VOICEVOX:キャラクター名&rdquo;
+        (e.g. VOICEVOX:ずんだもん). The TTS popup shows and copies the exact credit.</span></li>
+      <li><a href="http://open-jtalk.sourceforge.net/" target="_blank">Open JTalk</a> &middot; <span class="lic">Modified BSD</span><br>
+        <span class="desc">Japanese pronunciation dictionary (VOICEVOX and Kokoro Japanese voices).</span></li>
+      <li>Windows voices &middot; <span class="lic">OS built-in</span> <span class="desc">accessed via
+        <a href="https://pypi.org/project/winsdk/" target="_blank">winsdk</a> (MIT); nothing bundled.</span></li>
     </ul>
 
     <div class="credits-head">Application</div>
@@ -256,6 +341,7 @@
     <button data-page="audio">Audio</button>
     <button data-page="translation">Translation</button>
     <button data-page="phrases">Phrases</button>
+    <button data-page="voices">Voices</button>
     <button data-page="about">About</button>
   </nav>
   </div>
@@ -307,6 +393,76 @@
   </div>
 </div>
 
+
+<div id="tts-backdrop"></div>
+<div id="tts-panel">
+  <div id="tts-header">
+    <span>TTS</span>
+    <button id="tts-close" title="Close">✕</button>
+  </div>
+  <div id="tts-body">
+    
+    <div id="tts-install" style="display:none;">
+      <p class="tts-hint">No voices are installed yet. Add one in
+        <b>Settings → Voices</b> (Kokoro for English, VOICEVOX for Japanese).</p>
+      <button id="tts-open-voices" class="tts-primary">Open Settings → Voices</button>
+    </div>
+    
+    <div id="tts-starting" style="display:none;">
+      <p class="tts-hint" id="tts-starting-text">Starting voice engine…</p>
+    </div>
+    
+    <div id="tts-form" style="display:none;">
+      <label class="tts-label">Text</label>
+      <textarea id="tts-text" placeholder="Type something to say…"></textarea>
+      <div class="tts-row">
+        <div style="flex:1;min-width:0;">
+          <label class="tts-label">Voice</label>
+          <select id="tts-voice"></select>
+        </div>
+        <div style="flex:1;min-width:0;" id="tts-style-wrap">
+          <label class="tts-label">Style</label>
+          <select id="tts-style"></select>
+        </div>
+      </div>
+      <label class="tts-label">Speed <span id="tts-speed-val" class="tts-dim">1.00×</span></label>
+      <input id="tts-speed" type="range" min="0.5" max="2" step="0.05" value="1">
+      
+      <div id="tts-credit" class="tts-credit" style="display:none;">
+        <span class="tts-credit-label">Credit required:</span>
+        <code id="tts-credit-text"></code>
+        <button id="tts-credit-copy" class="tts-secondary" title="Copy credit">Copy</button>
+        <a id="tts-credit-terms" href="#" target="_blank" rel="noopener">terms ↗</a>
+      </div>
+      <label class="tts-label">Output</label>
+      <select id="tts-device"></select>
+      <label class="tts-label">Monitor</label>
+      <select id="tts-monitor"></select>
+      <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:#ccc;cursor:pointer;margin-top:12px;">
+        <input type="checkbox" id="tts-passthru" style="cursor:pointer;" />
+        Pass my mic through to the cable
+      </label>
+      <div class="tts-dim" style="font-size:11px;line-height:1.5;margin-top:4px;">
+        Sends your real mic into the cable too, so VRChat hears your own voice
+        alongside the speech. Uses your transcription mic.
+      </div>
+      <label class="tts-label">Auto-TTS reads</label>
+      <select id="tts-speak-source">
+        <option value="original">Original line</option>
+        <option value="translation">Translation</option>
+      </select>
+      <div class="tts-actions">
+        <button id="tts-speak-btn" class="tts-primary">Play</button>
+        <a id="tts-manage-voices" class="tts-link" href="#">Manage voices</a>
+        <span id="tts-status" class="tts-progress"></span>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<div id="latency-hud" hidden></div>
+
 <div id="transcript-container">
   <div id="main-zone">
     <div id="active-zone"></div>
@@ -323,6 +479,6 @@
   </div>
 </div>
 
-<script src="/app.js?v=4"></script>
+<script src="/app.js?v=13"></script>
 </body>
 </html>

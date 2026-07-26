@@ -1,0 +1,20 @@
+{
+  "id": "kokoro-ja",
+  "kind": "tts",
+  "name": "Kokoro (neural TTS, Japanese)",
+  "protocol": 1,
+  "entry": "engine_server.py",
+  "python": "python/python.exe",
+  "languages": ["ja"],
+  "voices": [
+    {"id": "jf_alpha",      "label": "jf_alpha (JA female)",      "lang": "ja"},
+    {"id": "jf_gongitsune", "label": "jf_gongitsune (JA female)", "lang": "ja"},
+    {"id": "jf_nezumi",     "label": "jf_nezumi (JA female)",     "lang": "ja"},
+    {"id": "jf_tebukuro",   "label": "jf_tebukuro (JA female)",   "lang": "ja"},
+    {"id": "jm_kumo",       "label": "jm_kumo (JA male)",         "lang": "ja"}
+  ],
+  "default_voice": "jf_alpha",
+  "models_engine": "kokoro",
+  "models": ["kokoro-82m"],
+  "default_model": "kokoro-82m"
+}

@@ -23,22 +23,3 @@ DEFAULT_BLOCKED_PHRASES = [
     "vielen dank fürs zuschauen",
     "gracias por ver el video",
 ]
-
-
-def normalize(text: str) -> str:
-    return "".join(ch for ch in text if ch.isalnum()).casefold()
-
-
-def is_blocked(text: str, extra_phrases=()) -> bool:
-    norm = normalize(text)
-    if not norm:
-        return False
-    for phrase in DEFAULT_BLOCKED_PHRASES:
-        p = normalize(phrase)
-        if p and p in norm:
-            return True
-    for phrase in extra_phrases:
-        p = normalize(phrase)
-        if p and p in norm:
-            return True
-    return False

@@ -6,6 +6,7 @@ import subprocess
 import sys
 import tarfile
 import threading
+import zipfile
 from pathlib import Path
 from urllib import request as urllib_request
 
@@ -34,6 +35,16 @@ PARAKEET_MODEL_ARCHIVES = {
         "url": f"{_SHERPA}/sherpa-onnx-nemo-parakeet-tdt_ctc-0.6b-ja-35000-int8.tar.bz2",
         "extracted": "sherpa-onnx-nemo-parakeet-tdt_ctc-0.6b-ja-35000-int8",
     },
+}
+
+FUNASR_LLAMACPP_URL = (
+    "https://github.com/modelscope/FunASR/releases/download/v1.3.29/"
+    "funasr-llamacpp-windows-x64-avx2.zip"
+)
+_NANO_GGUF = "https://huggingface.co/FunAudioLLM/Fun-ASR-Nano-GGUF/resolve/main"
+NANO_MODEL_FILES = {
+    "funasr-encoder-f16.gguf": f"{_NANO_GGUF}/funasr-encoder-f16.gguf",
+    "qwen3-0.6b-q8_0.gguf": f"{_NANO_GGUF}/qwen3-0.6b-q8_0.gguf",
 }
 
 _job_lock = threading.Lock()
@@ -179,6 +190,39 @@ def _install_parakeet_models(dev_models: Path | None):
     download_parakeet_model("parakeet-tdt-0.6b-v3-int8")
 
 
+def download_nano_models():
+
+    target = MODELS_DIR / "nano"
+    target.mkdir(parents=True, exist_ok=True)
+
+    vad = target / "silero_vad.onnx"
+    if not vad.exists():
+        _download(SILERO_VAD_URL, vad, "downloading-models")
+    for name, url in NANO_MODEL_FILES.items():
+        dst = target / name
+        if not dst.exists():
+            _download(url, dst, "downloading-models")
+
+
+def _install_nano_binary(dest: Path):
+
+    bin_dir = dest / "bin"
+    if (bin_dir / "llama-funasr-cli.exe").exists():
+        return
+    bin_dir.mkdir(parents=True, exist_ok=True)
+    archive = CACHE_DIR / FUNASR_LLAMACPP_URL.rsplit("/", 1)[-1]
+    _download(FUNASR_LLAMACPP_URL, archive, "downloading-runtime")
+    _set_job(phase="extracting-runtime", detail="")
+    with zipfile.ZipFile(archive) as zf:
+        for member in zf.namelist():
+            if member.endswith("/"):
+                continue
+            data = zf.read(member)
+            (bin_dir / Path(member).name).write_bytes(data)
+    if not (bin_dir / "llama-funasr-cli.exe").exists():
+        raise RuntimeError("llama-funasr-cli.exe missing from FunASR runtime archive")
+
+
 def install(engine_id: str, source_dir: Path, repo_dir: Path):
     _set_job(engine=engine_id, phase="starting", detail="", error=None, done=False)
     dest = PACKS_DIR / engine_id
@@ -211,6 +255,10 @@ def install(engine_id: str, source_dir: Path, repo_dir: Path):
             manifest["models_dir"] = "../../models/parakeet"
         elif engine_id == "parakeet-stream":
             _install_parakeet_models(repo_dir / "stt-parakeet" / "models")
+        elif engine_id == "nano":
+            _install_nano_binary(dest)
+            download_nano_models()
+            manifest["models_dir"] = "../../models/nano"
 
         manifest["python"] = "python/python.exe"
         manifest["installed"] = True

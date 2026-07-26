@@ -46,6 +46,10 @@ def shutdown():
         server._engine_mgr.stop()
     except Exception:
         pass
+    try:
+        server._tts_mgr.stop()
+    except Exception:
+        pass
 
 
 def _already_running() -> bool:

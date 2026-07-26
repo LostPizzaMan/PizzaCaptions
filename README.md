@@ -64,6 +64,8 @@ The console window shows what the app is doing; logs are also written to `%APPDA
 
 Built on WhisperLiveKit, OpenAI Whisper models, sherpa-onnx, NVIDIA Parakeet models (CC-BY-4.0, © NVIDIA Corporation), Silero VAD, and more. See [CREDITS.md](CREDITS.md) for the full list with licenses.
 
+The optional text-to-speech feature can use **VOICEVOX** (Japanese) voices, powered by VOICEVOX. If you publish audio made with a VOICEVOX voice, you must credit the character as `VOICEVOX:キャラクター名` (e.g. `VOICEVOX:ずんだもん`); the app shows and copies the exact credit for the voice you are using. Individual characters may add their own terms.
+
 ## License
 
 Proprietary - all rights reserved. See [LICENSE](LICENSE). Third-party components remain under their own licenses (see [CREDITS.md](CREDITS.md)).

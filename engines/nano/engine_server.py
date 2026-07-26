@@ -4,8 +4,11 @@ import json
 import logging
 import os
 import queue
+import subprocess
+import tempfile
 import threading
 import time
+import wave
 from pathlib import Path
 
 import numpy as np
@@ -14,31 +17,9 @@ import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
-logger = logging.getLogger("parakeet-engine")
+logger = logging.getLogger("nano-engine")
 
 SAMPLE_RATE = 16000
-
-_TDT = "parakeet-tdt-0.6b-v3-int8"
-LANG_TO_MODEL = {lang: _TDT for lang in [
-    "bg", "hr", "cs", "da", "nl", "en", "et", "fi", "fr", "de", "el", "hu",
-    "it", "lv", "lt", "mt", "pl", "pt", "ro", "sk", "sl", "es", "sv", "ru", "uk",
-]}
-LANG_TO_MODEL["ja"] = "parakeet-ja"
-
-MODELS = {
-    _TDT: {
-        "type":    "transducer",
-        "encoder": "encoder.int8.onnx",
-        "decoder": "decoder.int8.onnx",
-        "joiner":  "joiner.int8.onnx",
-        "tokens":  "tokens.txt",
-    },
-    "parakeet-ja": {
-        "type":   "ctc",
-        "model":  "model.int8.onnx",
-        "tokens": "tokens.txt",
-    },
-}
 
 VAD_THRESHOLD = float(os.environ.get("VAD_THRESHOLD", "0.5"))
 VAD_MIN_SILENCE_S = float(os.environ.get("VAD_MIN_SILENCE_S", "0.7"))
@@ -47,59 +28,70 @@ VAD_MAX_SPEECH_S = float(os.environ.get("VAD_MAX_SPEECH_S", "20.0"))
 VAD_BUFFER_S = 60.0
 VAD_WINDOW = 512
 
-DECODING_METHOD = os.environ.get("PARAKEET_DECODING", "modified_beam_search")
-
 FLUSH_PEAK = 3 / 32768
 FLUSH_HOLD = 0.2
 
+NANO_THREADS = os.environ.get("NANO_THREADS") or str(max(1, (os.cpu_count() or 4) // 2))
+
 _models_dir: Path | None = None
-_recognizer: sherpa_onnx.OfflineRecognizer | None = None
+_binary: Path | None = None
+_enc_gguf: Path | None = None
+_llm_gguf: Path | None = None
 _session_lock = asyncio.Lock()
 
 
-def _load_recognizer(lang: str):
-    global _recognizer
-    model_name = LANG_TO_MODEL.get(lang)
-    if model_name is None:
-        raise ValueError(f"No model configured for language: {lang}")
-    cfg = MODELS[model_name]
-    model_dir = _models_dir / model_name
-    threads = max(1, (os.cpu_count() or 2) // 2)
+def _resolve_assets():
 
-    if cfg["type"] == "transducer":
-        encoder = model_dir / cfg["encoder"]
-        if not encoder.exists():
-            raise FileNotFoundError(f"Model not found at {model_dir}")
-        logger.info("Loading parakeet transducer (%s, %s) from %s", lang, DECODING_METHOD, model_dir)
-        _recognizer = sherpa_onnx.OfflineRecognizer.from_transducer(
-            encoder=str(encoder),
-            decoder=str(model_dir / cfg["decoder"]),
-            joiner=str(model_dir / cfg["joiner"]),
-            tokens=str(model_dir / cfg["tokens"]),
-            num_threads=threads,
-            decoding_method=DECODING_METHOD,
-            model_type="nemo_transducer",
-        )
-    else:
-        model = model_dir / cfg["model"]
-        if not model.exists():
-            raise FileNotFoundError(f"Model not found at {model_dir}")
-        logger.info("Loading parakeet CTC (%s) from %s", lang, model_dir)
-        _recognizer = sherpa_onnx.OfflineRecognizer.from_nemo_ctc(
-            model=str(model),
-            tokens=str(model_dir / cfg["tokens"]),
-            num_threads=threads,
-        )
-    logger.info("Parakeet model loaded (lang=%s)", lang)
+    global _binary, _enc_gguf, _llm_gguf
+    pack = Path(__file__).parent
+    cand = [pack / "bin" / "llama-funasr-cli.exe", pack / "bin" / "llama-funasr-cli"]
+    _binary = next((c for c in cand if c.exists()), None)
+    if _binary is None:
+        raise FileNotFoundError(f"llama-funasr-cli not found in {pack/'bin'}")
+    md = _models_dir
+    _enc_gguf = md / "funasr-encoder-f16.gguf"
+    _llm_gguf = next((md / n for n in ("qwen3-0.6b-q8_0.gguf", "qwen3-0.6b-q5km.gguf")
+                      if (md / n).exists()), None)
+    if not _enc_gguf.exists() or _llm_gguf is None:
+        raise FileNotFoundError(f"Fun-ASR-Nano GGUF weights not found in {md}")
+    logger.info("Fun-ASR-Nano ready: %s + %s (%s threads)",
+                _binary.name, _llm_gguf.name, NANO_THREADS)
+
+
+def _write_wav(path: str, samples_f32: np.ndarray):
+    pcm = np.clip(samples_f32, -1.0, 1.0)
+    pcm = (pcm * 32767).astype(np.int16)
+    with wave.open(path, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(SAMPLE_RATE)
+        w.writeframes(pcm.tobytes())
 
 
 def _transcribe(samples_f32: np.ndarray) -> str:
+
     if len(samples_f32) < SAMPLE_RATE * 0.05:
         return ""
-    stream = _recognizer.create_stream()
-    stream.accept_waveform(SAMPLE_RATE, samples_f32)
-    _recognizer.decode_stream(stream)
-    return stream.result.text.strip()
+    fd, wav = tempfile.mkstemp(suffix=".wav", prefix="nano_")
+    os.close(fd)
+    try:
+        _write_wav(wav, samples_f32)
+        env = dict(os.environ)
+        env.setdefault("GGML_NTHREADS", NANO_THREADS)
+        proc = subprocess.run(
+            [str(_binary), "--enc", str(_enc_gguf), "-m", str(_llm_gguf), "-a", wav],
+            capture_output=True, text=True, encoding="utf-8", errors="ignore",
+            timeout=120, env=env,
+        )
+        return " ".join(l.strip() for l in proc.stdout.splitlines() if l.strip())
+    except subprocess.TimeoutExpired:
+        logger.warning("Nano transcribe timed out")
+        return ""
+    finally:
+        try:
+            os.remove(wav)
+        except OSError:
+            pass
 
 
 def _build_vad() -> sherpa_onnx.VoiceActivityDetector:
@@ -122,7 +114,7 @@ app = FastAPI()
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "engine": "parakeet"}
+    return {"status": "ok", "engine": "nano"}
 
 
 @app.websocket("/asr")
@@ -226,7 +218,7 @@ async def asr(ws: WebSocket):
             except Exception as e:
                 logger.warning("VAD drain error: %s", e)
             segment_queue.put(None)
-            await asyncio.to_thread(inference_thread.join, 10)
+            await asyncio.to_thread(inference_thread.join, 30)
             result_queue.put_nowait(None)
             try:
                 await sender
@@ -245,7 +237,7 @@ def main():
     args = parser.parse_args()
 
     _models_dir = Path(args.models_dir)
-    _load_recognizer(args.language)
+    _resolve_assets()
     logger.info("Listening on 127.0.0.1:%d", args.port)
     uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="warning")
 

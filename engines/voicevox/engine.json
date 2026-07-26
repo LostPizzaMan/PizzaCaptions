@@ -1,0 +1,56 @@
+{
+  "id": "voicevox",
+  "kind": "tts",
+  "name": "VOICEVOX (neural TTS, Japanese)",
+  "protocol": 1,
+  "entry": "engine_server.py",
+  "python": "python/python.exe",
+  "languages": ["ja"],
+  "voices": [
+    {
+      "id": "3",
+      "label": "ずんだもん (ノーマル)",
+      "speaker": "ずんだもん",
+      "lang": "ja",
+      "credit": "VOICEVOX:ずんだもん",
+      "terms_url": "https://zunko.jp/con_ongen_kiyaku.html"
+    },
+    {
+      "id": "2",
+      "label": "四国めたん (ノーマル)",
+      "speaker": "四国めたん",
+      "lang": "ja",
+      "credit": "VOICEVOX:四国めたん",
+      "terms_url": "https://zunko.jp/con_ongen_kiyaku.html"
+    },
+    {
+      "id": "8",
+      "label": "春日部つむぎ (ノーマル)",
+      "speaker": "春日部つむぎ",
+      "lang": "ja",
+      "credit": "VOICEVOX:春日部つむぎ",
+      "terms_url": "https://github.com/VOICEVOX/voicevox_vvm/blob/main/README.md"
+    },
+    {
+      "id": "13",
+      "label": "青山龍星 (ノーマル・男声)",
+      "speaker": "青山龍星",
+      "lang": "ja",
+      "credit": "VOICEVOX:青山龍星",
+      "terms_url": "https://github.com/VOICEVOX/voicevox_vvm/blob/main/README.md"
+    }
+  ],
+  "default_voice": "3",
+  "models": ["voicevox"],
+  "default_model": "voicevox",
+  "license": {
+    "agreement_required": true,
+    "name": "VOICEVOX voice-model & ONNX Runtime terms",
+    "credit_template": "VOICEVOX:{speaker}",
+    "summary": "VOICEVOX voices are free for commercial and non-commercial use, but every clip you publish must be credited as \"VOICEVOX:キャラクター名\" (e.g. VOICEVOX:ずんだもん) wherever people can see it, such as a stream title or video description. Individual characters may add their own rules, so check each character's terms. On first use this pack downloads the VOICEVOX ONNX Runtime, the OpenJTalk dictionary, and the voice models from the official source; proceeding accepts those terms.",
+    "terms_urls": [
+      {"label": "Voice-model terms (per character)", "url": "https://github.com/VOICEVOX/voicevox_vvm/blob/main/README.md"},
+      {"label": "VOICEVOX ONNX Runtime terms", "url": "https://github.com/VOICEVOX/onnxruntime-builder"}
+    ]
+  }
+}

@@ -1,5 +1,6 @@
 {
   "id": "whisper",
+  "kind": "asr",
   "name": "Whisper (best accuracy, GPU recommended)",
   "protocol": 1,
   "entry": "engine_server.py",

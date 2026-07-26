@@ -1,0 +1,1111 @@
+{
+  "_note": "Generated from VOICEVOX voice-model metas (voicevox_vvm). Credit each clip as VOICEVOX:<character>. Verify per-character terms before publishing.",
+  "characters": [
+    {
+      "speaker": "四国めたん",
+      "en": "Shikoku Metan",
+      "credit": "VOICEVOX:四国めたん",
+      "terms_url": "https://zunko.jp/con_ongen_kiyaku.html",
+      "styles": [
+        {
+          "id": 0,
+          "name": "あまあま",
+          "vvm": "0.vvm",
+          "en": "Sweet"
+        },
+        {
+          "id": 2,
+          "name": "ノーマル",
+          "vvm": "0.vvm",
+          "en": "Normal"
+        },
+        {
+          "id": 4,
+          "name": "セクシー",
+          "vvm": "0.vvm",
+          "en": "Sexy"
+        },
+        {
+          "id": 6,
+          "name": "ツンツン",
+          "vvm": "0.vvm",
+          "en": "Tsundere"
+        },
+        {
+          "id": 36,
+          "name": "ささやき",
+          "vvm": "5.vvm",
+          "en": "Whisper"
+        },
+        {
+          "id": 37,
+          "name": "ヒソヒソ",
+          "vvm": "5.vvm",
+          "en": "Whispering"
+        }
+      ]
+    },
+    {
+      "speaker": "ずんだもん",
+      "en": "Zundamon",
+      "credit": "VOICEVOX:ずんだもん",
+      "terms_url": "https://zunko.jp/con_ongen_kiyaku.html",
+      "styles": [
+        {
+          "id": 1,
+          "name": "あまあま",
+          "vvm": "0.vvm",
+          "en": "Sweet"
+        },
+        {
+          "id": 3,
+          "name": "ノーマル",
+          "vvm": "0.vvm",
+          "en": "Normal"
+        },
+        {
+          "id": 5,
+          "name": "セクシー",
+          "vvm": "0.vvm",
+          "en": "Sexy"
+        },
+        {
+          "id": 7,
+          "name": "ツンツン",
+          "vvm": "0.vvm",
+          "en": "Tsundere"
+        },
+        {
+          "id": 22,
+          "name": "ささやき",
+          "vvm": "5.vvm",
+          "en": "Whisper"
+        },
+        {
+          "id": 38,
+          "name": "ヒソヒソ",
+          "vvm": "5.vvm",
+          "en": "Whispering"
+        },
+        {
+          "id": 75,
+          "name": "ヘロヘロ",
+          "vvm": "15.vvm",
+          "en": "Exhausted"
+        },
+        {
+          "id": 76,
+          "name": "なみだめ",
+          "vvm": "15.vvm",
+          "en": "Teary"
+        }
+      ]
+    },
+    {
+      "speaker": "春日部つむぎ",
+      "en": "Kasukabe Tsumugi",
+      "credit": "VOICEVOX:春日部つむぎ",
+      "terms_url": "https://tsumugi-official.studio.site/rule",
+      "styles": [
+        {
+          "id": 8,
+          "name": "ノーマル",
+          "vvm": "0.vvm",
+          "en": "Normal"
+        }
+      ]
+    },
+    {
+      "speaker": "波音リツ",
+      "en": "Namine Ritsu",
+      "credit": "VOICEVOX:波音リツ",
+      "terms_url": "http://canon-voice.com/kiyaku.html",
+      "styles": [
+        {
+          "id": 9,
+          "name": "ノーマル",
+          "vvm": "3.vvm",
+          "en": "Normal"
+        },
+        {
+          "id": 65,
+          "name": "クイーン",
+          "vvm": "3.vvm",
+          "en": "Queen"
+        }
+      ]
+    },
+    {
+      "speaker": "雨晴はう",
+      "en": "Amehare Hau",
+      "credit": "VOICEVOX:雨晴はう",
+      "terms_url": "https://amehau.com/?page_id=225",
+      "styles": [
+        {
+          "id": 10,
+          "name": "ノーマル",
+          "vvm": "0.vvm",
+          "en": "Normal"
+        }
+      ]
+    },
+    {
+      "speaker": "玄野武宏",
+      "en": "Kurono Takehiro",
+      "credit": "VOICEVOX:玄野武宏",
+      "terms_url": "https://www.virvoxproject.com/voicevoxの利用規約",
+      "styles": [
+        {
+          "id": 11,
+          "name": "ノーマル",
+          "vvm": "4.vvm",
+          "en": "Normal"
+        },
+        {
+          "id": 39,
+          "name": "喜び",
+          "vvm": "10.vvm",
+          "en": "Joy"
+        },
+        {
+          "id": 40,
+          "name": "ツンギレ",
+          "vvm": "10.vvm",
+          "en": "Snapping"
+        },
+        {
+          "id": 41,
+          "name": "悲しみ",
+          "vvm": "10.vvm",
+          "en": "Sadness"
+        }
+      ]
+    },
+    {
+      "speaker": "白上虎太郎",
+      "en": "Shirakami Kotarou",
+      "credit": "VOICEVOX:白上虎太郎",
+      "terms_url": "https://www.virvoxproject.com/voicevoxの利用規約",
+      "styles": [
+        {
+          "id": 12,
+          "name": "ふつう",
+          "vvm": "9.vvm",
+          "en": "Normal"
+        },
+        {
+          "id": 32,
+          "name": "わーい",
+          "vvm": "9.vvm",
+          "en": "Cheerful"
+        },
+        {
+          "id": 33,
+          "name": "びくびく",
+          "vvm": "9.vvm",
+          "en": "Nervous"
+        },
+        {
+          "id": 34,
+          "name": "おこ",
+          "vvm": "9.vvm",
+          "en": "Angry"
+        },
+        {
+          "id": 35,
+          "name": "びえーん",
+          "vvm": "9.vvm",
+          "en": "Wailing"
+        }
+      ]
+    },
+    {
+      "speaker": "青山龍星",
+      "en": "Aoyama Ryusei",
+      "credit": "VOICEVOX:青山龍星",
+      "terms_url": "https://www.virvoxproject.com/voicevoxの利用規約",
+      "styles": [
+        {
+          "id": 13,
+          "name": "ノーマル",
+          "vvm": "15.vvm",
+          "en": "Normal"
+        },
+        {
+          "id": 81,
+          "name": "熱血",
+          "vvm": "15.vvm",
+          "en": "Passionate"
+        },
+        {
+          "id": 82,
+          "name": "不機嫌",
+          "vvm": "15.vvm",
+          "en": "Grumpy"
+        },
+        {
+          "id": 83,
+          "name": "喜び",
+          "vvm": "15.vvm",
+          "en": "Joy"
+        },
+        {
+          "id": 84,
+          "name": "しっとり",
+          "vvm": "15.vvm",
+          "en": "Mellow"
+        },
+        {
+          "id": 85,
+          "name": "かなしみ",
+          "vvm": "15.vvm",
+          "en": "Sorrow"
+        },
+        {
+          "id": 86,
+          "name": "囁き",
+          "vvm": "15.vvm",
+          "en": "Whisper"
+        }
+      ]
+    },
+    {
+      "speaker": "冥鳴ひまり",
+      "en": "Meimei Himari",
+      "credit": "VOICEVOX:冥鳴ひまり",
+      "terms_url": "https://meimeihimari.wixsite.com/himari/terms-of-use",
+      "styles": [
+        {
+          "id": 14,
+          "name": "ノーマル",
+          "vvm": "1.vvm",
+          "en": "Normal"
+        }
+      ]
+    },
+    {
+      "speaker": "九州そら",
+      "en": "Kyushu Sora",
+      "credit": "VOICEVOX:九州そら",
+      "terms_url": "https://zunko.jp/con_ongen_kiyaku.html",
+      "styles": [
+        {
+          "id": 15,
+          "name": "あまあま",
+          "vvm": "2.vvm",
+          "en": "Sweet"
+        },
+        {
+          "id": 16,
+          "name": "ノーマル",
+          "vvm": "2.vvm",
+          "en": "Normal"
+        },
+        {
+          "id": 17,
+          "name": "セクシー",
+          "vvm": "2.vvm",
+          "en": "Sexy"
+        },
+        {
+          "id": 18,
+          "name": "ツンツン",
+          "vvm": "2.vvm",
+          "en": "Tsundere"
+        },
+        {
+          "id": 19,
+          "name": "ささやき",
+          "vvm": "5.vvm",
+          "en": "Whisper"
+        }
+      ]
+    },
+    {
+      "speaker": "もち子さん",
+      "en": "Mochiko-san",
+      "credit": "VOICEVOX:もち子さん",
+      "terms_url": "https://vtubermochio.wixsite.com/mochizora/利用規約",
+      "styles": [
+        {
+          "id": 20,
+          "name": "ノーマル",
+          "vvm": "15.vvm",
+          "en": "Normal"
+        },
+        {
+          "id": 66,
+          "name": "セクシー／あん子",
+          "vvm": "15.vvm",
+          "en": "Sexy / Anko"
+        },
+        {
+          "id": 77,
+          "name": "泣き",
+          "vvm": "15.vvm",
+          "en": "Crying"
+        },
+        {
+          "id": 78,
+          "name": "怒り",
+          "vvm": "15.vvm",
+          "en": "Anger"
+        },
+        {
+          "id": 79,
+          "name": "喜び",
+          "vvm": "15.vvm",
+          "en": "Joy"
+        },
+        {
+          "id": 80,
+          "name": "のんびり",
+          "vvm": "15.vvm",
+          "en": "Laid-back"
+        }
+      ]
+    },
+    {
+      "speaker": "剣崎雌雄",
+      "en": "Kenzaki Mesuo",
+      "credit": "VOICEVOX:剣崎雌雄",
+      "terms_url": "https://frontier.creatia.cc/fanclubs/413/posts/4507",
+      "styles": [
+        {
+          "id": 21,
+          "name": "ノーマル",
+          "vvm": "4.vvm",
+          "en": "Normal"
+        }
+      ]
+    },
+    {
+      "speaker": "WhiteCUL",
+      "en": "WhiteCUL",
+      "credit": "VOICEVOX:WhiteCUL",
+      "terms_url": "https://www.whitecul.com/guideline",
+      "styles": [
+        {
+          "id": 23,
+          "name": "ノーマル",
+          "vvm": "8.vvm",
+          "en": "Normal"
+        },
+        {
+          "id": 24,
+          "name": "たのしい",
+          "vvm": "8.vvm",
+          "en": "Happy"
+        },
+        {
+          "id": 25,
+          "name": "かなしい",
+          "vvm": "8.vvm",
+          "en": "Sad"
+        },
+        {
+          "id": 26,
+          "name": "びえーん",
+          "vvm": "8.vvm",
+          "en": "Wailing"
+        }
+      ]
+    },
+    {
+      "speaker": "後鬼",
+      "en": "Goki",
+      "credit": "VOICEVOX:後鬼",
+      "terms_url": "https://ついなちゃん.com/voicevox_terms/",
+      "styles": [
+        {
+          "id": 27,
+          "name": "人間ver.",
+          "vvm": "7.vvm",
+          "en": "Human ver."
+        },
+        {
+          "id": 28,
+          "name": "ぬいぐるみver.",
+          "vvm": "7.vvm",
+          "en": "Plushie ver."
+        },
+        {
+          "id": 87,
+          "name": "人間（怒り）ver.",
+          "vvm": "16.vvm",
+          "en": "Human (Angry) ver."
+        },
+        {
+          "id": 88,
+          "name": "鬼ver.",
+          "vvm": "16.vvm",
+          "en": "Demon ver."
+        }
+      ]
+    },
+    {
+      "speaker": "No.7",
+      "en": "No.7",
+      "credit": "VOICEVOX:No.7",
+      "terms_url": "https://voiceseven.com/#j0200",
+      "styles": [
+        {
+          "id": 29,
+          "name": "ノーマル",
+          "vvm": "6.vvm",
+          "en": "Normal"
+        },
+        {
+          "id": 30,
+          "name": "アナウンス",
+          "vvm": "6.vvm",
+          "en": "Announcement"
+        },
+        {
+          "id": 31,
+          "name": "読み聞かせ",
+          "vvm": "6.vvm",
+          "en": "Storytelling"
+        }
+      ]
+    },
+    {
+      "speaker": "ちび式じい",
+      "en": "Chibishiki Jii",
+      "credit": "VOICEVOX:ちび式じい",
+      "terms_url": "https://docs.google.com/presentation/d/1AcD8zXkfzKFf2ertHwWRwJuQXjNnijMxhz7AJzEkaI4",
+      "styles": [
+        {
+          "id": 42,
+          "name": "ノーマル",
+          "vvm": "10.vvm",
+          "en": "Normal"
+        }
+      ]
+    },
+    {
+      "speaker": "櫻歌ミコ",
+      "en": "Ouka Miko",
+      "credit": "VOICEVOX:櫻歌ミコ",
+      "terms_url": "https://voicevox35miko.studio.site/rule",
+      "styles": [
+        {
+          "id": 43,
+          "name": "ノーマル",
+          "vvm": "11.vvm",
+          "en": "Normal"
+        },
+        {
+          "id": 44,
+          "name": "第二形態",
+          "vvm": "11.vvm",
+          "en": "Second Form"
+        },
+        {
+          "id": 45,
+          "name": "ロリ",
+          "vvm": "11.vvm",
+          "en": "Loli"
+        }
+      ]
+    },
+    {
+      "speaker": "小夜/SAYO",
+      "en": "Sayo / SAYO",
+      "credit": "VOICEVOX:小夜/SAYO",
+      "terms_url": "https://316soramegu.wixsite.com/sayo-official/guideline",
+      "styles": [
+        {
+          "id": 46,
+          "name": "ノーマル",
+          "vvm": "15.vvm",
+          "en": "Normal"
+        }
+      ]
+    },
+    {
+      "speaker": "ナースロボ＿タイプＴ",
+      "en": "Nurserobo Type-T",
+      "credit": "VOICEVOX:ナースロボ＿タイプＴ",
+      "terms_url": "https://www.krnr.top/rules",
+      "styles": [
+        {
+          "id": 47,
+          "name": "ノーマル",
+          "vvm": "11.vvm",
+          "en": "Normal"
+        },
+        {
+          "id": 48,
+          "name": "楽々",
+          "vvm": "11.vvm",
+          "en": "Easygoing"
+        },
+        {
+          "id": 49,
+          "name": "恐怖",
+          "vvm": "11.vvm",
+          "en": "Fear"
+        },
+        {
+          "id": 50,
+          "name": "内緒話",
+          "vvm": "11.vvm",
+          "en": "Secret"
+        }
+      ]
+    },
+    {
+      "speaker": "†聖騎士 紅桜†",
+      "en": "†Holy Knight Benizakura†",
+      "credit": "VOICEVOX:†聖騎士 紅桜†",
+      "terms_url": "https://commons.nicovideo.jp/material/nc296132",
+      "styles": [
+        {
+          "id": 51,
+          "name": "ノーマル",
+          "vvm": "12.vvm",
+          "en": "Normal"
+        }
+      ]
+    },
+    {
+      "speaker": "雀松朱司",
+      "en": "Wakamatsu Akashi",
+      "credit": "VOICEVOX:雀松朱司",
+      "terms_url": "https://www.virvoxproject.com/voicevoxの利用規約",
+      "styles": [
+        {
+          "id": 52,
+          "name": "ノーマル",
+          "vvm": "12.vvm",
+          "en": "Normal"
+        }
+      ]
+    },
+    {
+      "speaker": "麒ヶ島宗麟",
+      "en": "Kigashima Sourin",
+      "credit": "VOICEVOX:麒ヶ島宗麟",
+      "terms_url": "https://www.virvoxproject.com/voicevoxの利用規約",
+      "styles": [
+        {
+          "id": 53,
+          "name": "ノーマル",
+          "vvm": "12.vvm",
+          "en": "Normal"
+        }
+      ]
+    },
+    {
+      "speaker": "春歌ナナ",
+      "en": "Haruka Nana",
+      "credit": "VOICEVOX:春歌ナナ",
+      "terms_url": "https://nanahira.jp/haruka_nana/guideline.html",
+      "styles": [
+        {
+          "id": 54,
+          "name": "ノーマル",
+          "vvm": "13.vvm",
+          "en": "Normal"
+        }
+      ]
+    },
+    {
+      "speaker": "猫使アル",
+      "en": "Nekotsuka Aru",
+      "credit": "VOICEVOX:猫使アル",
+      "terms_url": "https://nekotukarb.wixsite.com/nekonohako/利用規約",
+      "styles": [
+        {
+          "id": 55,
+          "name": "ノーマル",
+          "vvm": "13.vvm",
+          "en": "Normal"
+        },
+        {
+          "id": 56,
+          "name": "おちつき",
+          "vvm": "13.vvm",
+          "en": "Calm"
+        },
+        {
+          "id": 57,
+          "name": "うきうき",
+          "vvm": "13.vvm",
+          "en": "Excited"
+        },
+        {
+          "id": 110,
+          "name": "つよつよ",
+          "vvm": "21.vvm",
+          "en": "Strong"
+        },
+        {
+          "id": 111,
+          "name": "へろへろ",
+          "vvm": "21.vvm",
+          "en": "Exhausted"
+        }
+      ]
+    },
+    {
+      "speaker": "猫使ビィ",
+      "en": "Nekotsuka Bi",
+      "credit": "VOICEVOX:猫使ビィ",
+      "terms_url": "https://nekotukarb.wixsite.com/nekonohako/利用規約",
+      "styles": [
+        {
+          "id": 58,
+          "name": "ノーマル",
+          "vvm": "13.vvm",
+          "en": "Normal"
+        },
+        {
+          "id": 59,
+          "name": "おちつき",
+          "vvm": "13.vvm",
+          "en": "Calm"
+        },
+        {
+          "id": 60,
+          "name": "人見知り",
+          "vvm": "13.vvm",
+          "en": "Shy"
+        },
+        {
+          "id": 112,
+          "name": "つよつよ",
+          "vvm": "21.vvm",
+          "en": "Strong"
+        }
+      ]
+    },
+    {
+      "speaker": "中国うさぎ",
+      "en": "Chugoku Usagi",
+      "credit": "VOICEVOX:中国うさぎ",
+      "terms_url": "https://zunko.jp/con_ongen_kiyaku.html",
+      "styles": [
+        {
+          "id": 61,
+          "name": "ノーマル",
+          "vvm": "3.vvm",
+          "en": "Normal"
+        },
+        {
+          "id": 62,
+          "name": "おどろき",
+          "vvm": "3.vvm",
+          "en": "Surprised"
+        },
+        {
+          "id": 63,
+          "name": "こわがり",
+          "vvm": "3.vvm",
+          "en": "Timid"
+        },
+        {
+          "id": 64,
+          "name": "へろへろ",
+          "vvm": "3.vvm",
+          "en": "Exhausted"
+        }
+      ]
+    },
+    {
+      "speaker": "栗田まろん",
+      "en": "Kurita Maron",
+      "credit": "VOICEVOX:栗田まろん",
+      "terms_url": "https://aivoice.jp/character/maron/",
+      "styles": [
+        {
+          "id": 67,
+          "name": "ノーマル",
+          "vvm": "14.vvm",
+          "en": "Normal"
+        }
+      ]
+    },
+    {
+      "speaker": "あいえるたん",
+      "en": "Aierutan",
+      "credit": "VOICEVOX:あいえるたん",
+      "terms_url": "https://www.infiniteloop.co.jp/special/iltan/terms/",
+      "styles": [
+        {
+          "id": 68,
+          "name": "ノーマル",
+          "vvm": "14.vvm",
+          "en": "Normal"
+        }
+      ]
+    },
+    {
+      "speaker": "満別花丸",
+      "en": "Manbetsu Hanamaru",
+      "credit": "VOICEVOX:満別花丸",
+      "terms_url": "https://100hanamaru.wixsite.com/manbetsu-hanamaru/rule",
+      "styles": [
+        {
+          "id": 69,
+          "name": "ノーマル",
+          "vvm": "14.vvm",
+          "en": "Normal"
+        },
+        {
+          "id": 70,
+          "name": "元気",
+          "vvm": "14.vvm",
+          "en": "Energetic"
+        },
+        {
+          "id": 71,
+          "name": "ささやき",
+          "vvm": "14.vvm",
+          "en": "Whisper"
+        },
+        {
+          "id": 72,
+          "name": "ぶりっ子",
+          "vvm": "14.vvm",
+          "en": "Cutesy"
+        },
+        {
+          "id": 73,
+          "name": "ボーイ",
+          "vvm": "14.vvm",
+          "en": "Boy"
+        }
+      ]
+    },
+    {
+      "speaker": "琴詠ニア",
+      "en": "Kotoyomi Nia",
+      "credit": "VOICEVOX:琴詠ニア",
+      "terms_url": "https://commons.nicovideo.jp/works/nc315435",
+      "styles": [
+        {
+          "id": 74,
+          "name": "ノーマル",
+          "vvm": "14.vvm",
+          "en": "Normal"
+        }
+      ]
+    },
+    {
+      "speaker": "Voidoll",
+      "en": "Voidoll",
+      "credit": "VOICEVOX:Voidoll",
+      "terms_url": "https://blog.nicovideo.jp/niconews/224589.html",
+      "styles": [
+        {
+          "id": 89,
+          "name": "ノーマル",
+          "vvm": "17.vvm",
+          "en": "Normal"
+        }
+      ]
+    },
+    {
+      "speaker": "ぞん子",
+      "en": "Zonko",
+      "credit": "VOICEVOX:ぞん子",
+      "terms_url": "https://zonko.zone-energy.jp/guideline",
+      "styles": [
+        {
+          "id": 90,
+          "name": "ノーマル",
+          "vvm": "18.vvm",
+          "en": "Normal"
+        },
+        {
+          "id": 91,
+          "name": "低血圧",
+          "vvm": "18.vvm",
+          "en": "Sluggish"
+        },
+        {
+          "id": 92,
+          "name": "覚醒",
+          "vvm": "18.vvm",
+          "en": "Awakened"
+        },
+        {
+          "id": 93,
+          "name": "実況風",
+          "vvm": "18.vvm",
+          "en": "Commentary"
+        }
+      ]
+    },
+    {
+      "speaker": "中部つるぎ",
+      "en": "Chubu Tsurugi",
+      "credit": "VOICEVOX:中部つるぎ",
+      "terms_url": "https://zunko.jp/con_ongen_kiyaku.html",
+      "styles": [
+        {
+          "id": 94,
+          "name": "ノーマル",
+          "vvm": "18.vvm",
+          "en": "Normal"
+        },
+        {
+          "id": 95,
+          "name": "怒り",
+          "vvm": "18.vvm",
+          "en": "Anger"
+        },
+        {
+          "id": 96,
+          "name": "ヒソヒソ",
+          "vvm": "18.vvm",
+          "en": "Whispering"
+        },
+        {
+          "id": 97,
+          "name": "おどおど",
+          "vvm": "18.vvm",
+          "en": "Timid"
+        },
+        {
+          "id": 98,
+          "name": "絶望と敗北",
+          "vvm": "18.vvm",
+          "en": "Despair & Defeat"
+        }
+      ]
+    },
+    {
+      "speaker": "離途",
+      "en": "Rito",
+      "credit": "VOICEVOX:離途",
+      "terms_url": "https://litmus9.com/#/voicebank#rules",
+      "styles": [
+        {
+          "id": 99,
+          "name": "ノーマル",
+          "vvm": "19.vvm",
+          "en": "Normal"
+        },
+        {
+          "id": 101,
+          "name": "シリアス",
+          "vvm": "19.vvm",
+          "en": "Serious"
+        }
+      ]
+    },
+    {
+      "speaker": "黒沢冴白",
+      "en": "Kurosawa Kohaku",
+      "credit": "VOICEVOX:黒沢冴白",
+      "terms_url": "https://www.virvoxproject.com/voicevoxの利用規約",
+      "styles": [
+        {
+          "id": 100,
+          "name": "ノーマル",
+          "vvm": "19.vvm",
+          "en": "Normal"
+        }
+      ]
+    },
+    {
+      "speaker": "ユーレイちゃん",
+      "en": "Yurei-chan",
+      "credit": "VOICEVOX:ユーレイちゃん",
+      "terms_url": "https://u-stella.co.jp/voicevox-ure-chan-tucumo-terms-of-use/",
+      "styles": [
+        {
+          "id": 102,
+          "name": "ノーマル",
+          "vvm": "20.vvm",
+          "en": "Normal"
+        },
+        {
+          "id": 103,
+          "name": "甘々",
+          "vvm": "20.vvm",
+          "en": "Sweet"
+        },
+        {
+          "id": 104,
+          "name": "哀しみ",
+          "vvm": "20.vvm",
+          "en": "Sorrow"
+        },
+        {
+          "id": 105,
+          "name": "ささやき",
+          "vvm": "20.vvm",
+          "en": "Whisper"
+        },
+        {
+          "id": 106,
+          "name": "ツクモちゃん",
+          "vvm": "20.vvm",
+          "en": "Tsukumo-chan"
+        }
+      ]
+    },
+    {
+      "speaker": "東北ずん子",
+      "en": "Tohoku Zunko",
+      "credit": "VOICEVOX:東北ずん子",
+      "terms_url": "https://zunko.jp/con_ongen_kiyaku.html",
+      "styles": [
+        {
+          "id": 107,
+          "name": "ノーマル",
+          "vvm": "21.vvm",
+          "en": "Normal"
+        }
+      ]
+    },
+    {
+      "speaker": "東北きりたん",
+      "en": "Tohoku Kiritan",
+      "credit": "VOICEVOX:東北きりたん",
+      "terms_url": "https://zunko.jp/con_ongen_kiyaku.html",
+      "styles": [
+        {
+          "id": 108,
+          "name": "ノーマル",
+          "vvm": "21.vvm",
+          "en": "Normal"
+        }
+      ]
+    },
+    {
+      "speaker": "東北イタコ",
+      "en": "Tohoku Itako",
+      "credit": "VOICEVOX:東北イタコ",
+      "terms_url": "https://zunko.jp/con_ongen_kiyaku.html",
+      "styles": [
+        {
+          "id": 109,
+          "name": "ノーマル",
+          "vvm": "21.vvm",
+          "en": "Normal"
+        }
+      ]
+    },
+    {
+      "speaker": "あんこもん",
+      "en": "Ankomon",
+      "credit": "VOICEVOX:あんこもん",
+      "terms_url": "https://zunko.jp/con_ongen_kiyaku.html",
+      "styles": [
+        {
+          "id": 113,
+          "name": "ノーマル",
+          "vvm": "22.vvm",
+          "en": "Normal"
+        },
+        {
+          "id": 114,
+          "name": "つよつよ",
+          "vvm": "22.vvm",
+          "en": "Strong"
+        },
+        {
+          "id": 115,
+          "name": "よわよわ",
+          "vvm": "22.vvm",
+          "en": "Weak"
+        },
+        {
+          "id": 116,
+          "name": "けだるげ",
+          "vvm": "22.vvm",
+          "en": "Languid"
+        },
+        {
+          "id": 117,
+          "name": "ささやき",
+          "vvm": "23.vvm",
+          "en": "Whisper"
+        }
+      ]
+    },
+    {
+      "speaker": "夜語トバリ",
+      "en": "Yogatari Tobari",
+      "credit": "VOICEVOX:夜語トバリ",
+      "terms_url": "https://yogataritobari.studio.site/#rules",
+      "styles": [
+        {
+          "id": 118,
+          "name": "ノーマル",
+          "vvm": "24.vvm",
+          "en": "Normal"
+        },
+        {
+          "id": 119,
+          "name": "明るい",
+          "vvm": "24.vvm",
+          "en": "Bright"
+        },
+        {
+          "id": 120,
+          "name": "哀しみ",
+          "vvm": "24.vvm",
+          "en": "Sorrow"
+        },
+        {
+          "id": 121,
+          "name": "呆れ",
+          "vvm": "24.vvm",
+          "en": "Exasperated"
+        }
+      ]
+    },
+    {
+      "speaker": "暁記ミタマ",
+      "en": "Akatsuki Mitama",
+      "credit": "VOICEVOX:暁記ミタマ",
+      "terms_url": "https://yogataritobari.studio.site/#rules",
+      "styles": [
+        {
+          "id": 122,
+          "name": "ノーマル",
+          "vvm": "24.vvm",
+          "en": "Normal"
+        },
+        {
+          "id": 123,
+          "name": "怒り",
+          "vvm": "24.vvm",
+          "en": "Anger"
+        },
+        {
+          "id": 124,
+          "name": "哀しみ",
+          "vvm": "24.vvm",
+          "en": "Sorrow"
+        },
+        {
+          "id": 125,
+          "name": "ささやき",
+          "vvm": "24.vvm",
+          "en": "Whisper"
+        }
+      ]
+    },
+    {
+      "speaker": "里石ユカ",
+      "en": "Satoishi Yuka",
+      "credit": "VOICEVOX:里石ユカ",
+      "terms_url": "https://satoishiyuka.wixsite.com/satoishi/kiyaku",
+      "styles": [
+        {
+          "id": 126,
+          "name": "つぼみ",
+          "vvm": "24.vvm",
+          "en": "Bud"
+        }
+      ]
+    }
+  ]
+}

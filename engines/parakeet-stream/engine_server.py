@@ -50,6 +50,13 @@ VAD_WINDOW = 512
 PREVIEW_STEP_S = float(os.environ.get("PARAKEET_STREAM_STEP_S", "0.30"))
 POLL_S = 0.05
 
+PREVIEW_WINDOW_S = float(os.environ.get("PARAKEET_STREAM_WINDOW_S", "6.0"))
+PREVIEW_LEFT_CTX_S = float(os.environ.get("PARAKEET_STREAM_LEFT_CTX_S", "1.5"))
+REPEAT_NGRAM = 5
+JITTER_S = 0.3
+JITTER_CJK_S = 0.12
+MIN_RIGHT_CTX_S = float(os.environ.get("PARAKEET_STREAM_RIGHT_CTX_S", "0.4"))
+
 DECODING_METHOD = os.environ.get("PARAKEET_DECODING", "greedy_search")
 NUM_THREADS = int(os.environ.get("PARAKEET_STREAM_THREADS", "1"))
 DEBUG_TIMING = bool(os.environ.get("PARAKEET_STREAM_DEBUG"))
@@ -60,13 +67,15 @@ FLUSH_HOLD = 0.2
 
 _models_dir: Path | None = None
 _recognizer: sherpa_onnx.OfflineRecognizer | None = None
+_is_cjk = False
 _session_lock = asyncio.Lock()
 
 _SENTINEL = object()
 
 
 def _load_recognizer(lang: str):
-    global _recognizer
+    global _recognizer, _is_cjk
+    _is_cjk = lang in ("ja",)
     model_name = LANG_TO_MODEL.get(lang)
     if model_name is None:
         raise ValueError(f"No model configured for language: {lang}")
@@ -101,37 +110,102 @@ def _load_recognizer(lang: str):
     logger.info("Parakeet streaming model loaded (lang=%s)", lang)
 
 
-def _transcribe(samples_f32: np.ndarray) -> str:
-    if len(samples_f32) < SAMPLE_RATE * 0.05:
-        return ""
+def _decode(samples_f32: np.ndarray):
     stream = _recognizer.create_stream()
     stream.accept_waveform(SAMPLE_RATE, samples_f32)
     _recognizer.decode_stream(stream)
-    return stream.result.text.strip()
+    return stream.result
 
 
-def _common_prefix(a: str, b: str) -> str:
+def _transcribe(samples_f32: np.ndarray) -> str:
+    if len(samples_f32) < SAMPLE_RATE * 0.05:
+        return ""
+    return _decode(samples_f32).text.strip()
+
+
+def _common_prefix_len(a: list, b: list) -> int:
     n, m = 0, min(len(a), len(b))
     while n < m and a[n] == b[n]:
         n += 1
-    return a[:n]
+    return n
 
 
-class StablePrefix:
+def _prefix_safe(shown: str, final: str) -> str:
+
+    if not shown or final.startswith(shown):
+        return final
+    for n in range(min(len(shown), 40), 7, -1):
+        key = shown[-n:]
+        idx = final.rfind(key)
+        if idx != -1:
+            return shown + final[idx + n:]
+        bare = key.rstrip(".,!?;:。、！？ ")
+        if len(bare) > 7 and bare != key:
+            idx = final.rfind(bare)
+            if idx != -1:
+                return shown + final[idx + len(bare):]
+    return shown
+
+
+def _normalize(word: str) -> str:
+
+    return "".join(c for c in word.lower() if c.isalnum())
+
+
+class WindowedCommitter:
 
 
     def __init__(self):
-        self.prev = ""
-        self.shown = ""
+        self.committed: list[tuple[str, float]] = []
+        self.committed_s = 0.0
+        self.pending: list[tuple[str, float]] = []
 
-    def update(self, cur: str) -> str:
-        agreed = _common_prefix(self.prev, cur)
-        self.prev = cur
-        if " " in agreed:
-            agreed = agreed[:agreed.rfind(" ")]
-        if len(agreed) > len(self.shown):
-            self.shown = agreed
-        return self.shown
+    def window_start_s(self) -> float:
+        return max(0.0, self.committed_s - PREVIEW_LEFT_CTX_S)
+
+    def _group(self, result, offset_s: float) -> list[tuple[str, float]]:
+        words: list[list] = []
+        for token, ts in zip(result.tokens, result.timestamps):
+            if _is_cjk:
+                if token.strip():
+                    words.append([token, ts + offset_s])
+            elif token.startswith(" ") or not words:
+                words.append([token, ts + offset_s])
+            else:
+                words[-1][0] += token
+        return [(w, ts) for w, ts in words]
+
+    def update(self, result, offset_s: float, end_s: float) -> str:
+        stranded = [w for w in self.pending if w[1] < offset_s]
+        if stranded:
+            self.committed.extend(stranded)
+            self.committed_s = max(self.committed_s, stranded[-1][1])
+            self.pending = [w for w in self.pending if w[1] >= offset_s]
+
+        words = self._group(result, offset_s)
+        jitter = JITTER_CJK_S if _is_cjk else JITTER_S
+        cutoff = self.committed_s - (jitter if self.pending else 0.0)
+        words = [w for w in words if w[1] > cutoff + 1e-3]
+        for i in range(min(len(self.committed), len(words), REPEAT_NGRAM), 0, -1):
+            if ([_normalize(w) for w, _ in self.committed[-i:]]
+                    == [_normalize(w) for w, _ in words[:i]]):
+                words = words[i:]
+                break
+        if not words:
+            return self.text()
+
+        n = _common_prefix_len([w for w, _ in self.pending], [w for w, _ in words])
+        while n and words[n - 1][1] > end_s - MIN_RIGHT_CTX_S:
+            n -= 1
+        if n:
+            self.committed.extend(words[:n])
+            self.committed_s = words[n - 1][1]
+        self.pending = words[n:]
+        return self.text()
+
+    def text(self) -> str:
+        words = self.committed if STABLE_PREVIEW else self.committed + self.pending
+        return "".join(w for w, _ in words).strip()
 
 
 def _build_vad() -> sherpa_onnx.VoiceActivityDetector:
@@ -168,8 +242,10 @@ async def asr(ws: WebSocket):
         result_queue: asyncio.Queue = asyncio.Queue()
         audio_queue: queue.Queue = queue.Queue()
 
-        def emit(line_no: int, text: str):
+        def emit(line_no: int, text: str, final: bool = False):
             msg = {"lines": [{"text": text, "speaker": 0}], "line_count": line_no}
+            if final:
+                msg["final"] = True
             loop.call_soon_threadsafe(result_queue.put_nowait, msg)
 
         def stream_worker():
@@ -181,18 +257,18 @@ async def asr(ws: WebSocket):
             last_text = ""
             last_preview = 0.0
             silent_run = 0.0
-            stable = StablePrefix()
+            committer = WindowedCommitter()
             stopping = False
 
             def reset_utterance():
-                nonlocal vad, vad_rem, live, new_line, last_text, silent_run, stable
-                vad = _build_vad()
+                nonlocal vad_rem, live, new_line, last_text, silent_run, committer
+                vad.reset()
                 vad_rem = np.empty(0, dtype=np.float32)
                 live = np.empty(0, dtype=np.float32)
                 new_line = True
                 last_text = ""
                 silent_run = 0.0
-                stable = StablePrefix()
+                committer = WindowedCommitter()
 
             while True:
                 chunks = []
@@ -240,21 +316,27 @@ async def asr(ws: WebSocket):
 
                 now = time.monotonic()
                 if endpoint and len(live):
-                    text = _transcribe(live)
+                    text = _prefix_safe(last_text, _transcribe(live))
                     if text:
                         if new_line:
                             line_no += 1
-                        emit(line_no, text)
+                        emit(line_no, text, final=True)
                     reset_utterance()
                 elif len(live) and (now - last_preview) >= PREVIEW_STEP_S:
-                    t0 = time.perf_counter()
-                    hyp = _transcribe(live)
-                    text = stable.update(hyp) if STABLE_PREVIEW else hyp
+                    lo = int(committer.window_start_s() * SAMPLE_RATE)
+                    lo = max(lo, len(live) - int(PREVIEW_WINDOW_S * SAMPLE_RATE))
+                    window = live[lo:]
+                    text = ""
+                    if len(window) >= SAMPLE_RATE * 0.05:
+                        t0 = time.perf_counter()
+                        text = committer.update(_decode(window), lo / SAMPLE_RATE,
+                                                len(live) / SAMPLE_RATE)
+                        if DEBUG_TIMING:
+                            logger.info("preview %.0f ms  win=%.1fs of buf=%.1fs  shown=%dch",
+                                        (time.perf_counter() - t0) * 1000,
+                                        len(window) / SAMPLE_RATE,
+                                        len(live) / SAMPLE_RATE, len(text))
                     last_preview = now
-                    if DEBUG_TIMING:
-                        logger.info("preview %.0f ms  buf=%.1fs  shown=%dch",
-                                    (time.perf_counter() - t0) * 1000,
-                                    len(live) / SAMPLE_RATE, len(text))
                     if text and text != last_text:
                         if new_line:
                             line_no += 1
@@ -263,12 +345,6 @@ async def asr(ws: WebSocket):
                         last_text = text
 
                 if stopping and audio_queue.empty():
-                    if len(live):
-                        text = _transcribe(live)
-                        if text:
-                            if new_line:
-                                line_no += 1
-                            emit(line_no, text)
                     break
 
         worker = threading.Thread(target=stream_worker, daemon=True)

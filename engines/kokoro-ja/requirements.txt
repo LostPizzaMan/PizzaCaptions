@@ -1,0 +1,10 @@
+kokoro-onnx>=0.4.0
+numpy>=1.26
+fastapi==0.136.3
+uvicorn==0.48.0
+misaki>=0.9.4
+pyopenjtalk>=0.4.1
+fugashi>=1.5
+unidic-lite>=1.0.8
+jaconv>=0.5
+mojimoji>=0.0.13

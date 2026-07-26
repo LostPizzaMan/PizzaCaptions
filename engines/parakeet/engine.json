@@ -1,5 +1,6 @@
 {
   "id": "parakeet",
+  "kind": "asr",
   "name": "Parakeet (fast, CPU-friendly)",
   "protocol": 1,
   "entry": "engine_server.py",
