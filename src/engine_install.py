@@ -47,6 +47,17 @@ NANO_MODEL_FILES = {
     "qwen3-0.6b-q8_0.gguf": f"{_NANO_GGUF}/qwen3-0.6b-q8_0.gguf",
 }
 
+_LLAMACPP_REL = "https://github.com/ggml-org/llama.cpp/releases/download/b10149"
+QWEN3_RUNTIME_URLS = (
+    f"{_LLAMACPP_REL}/llama-b10149-bin-win-cuda-12.4-x64.zip",
+    f"{_LLAMACPP_REL}/cudart-llama-bin-win-cuda-12.4-x64.zip",
+)
+_QWEN3_GGUF = "https://huggingface.co/ggml-org/Qwen3-ASR-1.7B-GGUF/resolve/main"
+QWEN3_MODEL_FILES = {
+    "Qwen3-ASR-1.7B-Q8_0.gguf": f"{_QWEN3_GGUF}/Qwen3-ASR-1.7B-Q8_0.gguf",
+    "mmproj-Qwen3-ASR-1.7B-Q8_0.gguf": f"{_QWEN3_GGUF}/mmproj-Qwen3-ASR-1.7B-Q8_0.gguf",
+}
+
 _job_lock = threading.Lock()
 _job: dict = {"engine": None, "phase": "idle", "detail": "", "error": None, "done": True}
 
@@ -98,13 +109,14 @@ def _download(url: str, dest: Path, phase: str):
         raise
 
 
-def _run_uv(uv: str, python: Path, args: list[str], phase: str):
+def _run_uv(uv: str, python: Path, args: list[str], phase: str, cwd: Path | None = None):
     cmd = [uv, "pip", "install", "--python", str(python)] + args
     logger.info("engine-install: %s", " ".join(cmd))
     env = dict(os.environ)
     env["UV_CACHE_DIR"] = str(CACHE_DIR / "uv")
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                             text=True, encoding="utf-8", errors="replace", env=env,
+                            cwd=str(cwd) if cwd else None,
                             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     winjob.assign(proc)
     output_lines = []
@@ -223,20 +235,51 @@ def _install_nano_binary(dest: Path):
         raise RuntimeError("llama-funasr-cli.exe missing from FunASR runtime archive")
 
 
+def download_qwen3_models():
+    target = MODELS_DIR / "qwen3"
+    target.mkdir(parents=True, exist_ok=True)
+    vad = target / "silero_vad.onnx"
+    if not vad.exists():
+        _download(SILERO_VAD_URL, vad, "downloading-models")
+    for name, url in QWEN3_MODEL_FILES.items():
+        dst = target / name
+        if not dst.exists():
+            _download(url, dst, "downloading-models")
+
+
+def _install_qwen3_runtime():
+
+    bin_dir = MODELS_DIR / "qwen3" / "bin"
+    if (bin_dir / "llama-server.exe").exists():
+        return
+    bin_dir.mkdir(parents=True, exist_ok=True)
+    for url in QWEN3_RUNTIME_URLS:
+        archive = CACHE_DIR / url.rsplit("/", 1)[-1]
+        _download(url, archive, "downloading-runtime")
+        _set_job(phase="extracting-runtime", detail="")
+        with zipfile.ZipFile(archive) as zf:
+            for member in zf.namelist():
+                if member.endswith("/"):
+                    continue
+                (bin_dir / Path(member).name).write_bytes(zf.read(member))
+    if not (bin_dir / "llama-server.exe").exists():
+        raise RuntimeError("llama-server.exe missing from the llama.cpp CUDA archive")
+
+
 def install(engine_id: str, source_dir: Path, repo_dir: Path):
     _set_job(engine=engine_id, phase="starting", detail="", error=None, done=False)
     dest = PACKS_DIR / engine_id
+    partial = False
     try:
         uv = _find_uv()
 
         if dest.exists():
             shutil.rmtree(dest)
         dest.mkdir(parents=True)
+        partial = True
 
-        for name in ("engine.json", "engine_server.py", "requirements.txt"):
-            src = source_dir / name
-            if src.exists():
-                shutil.copy2(src, dest / name)
+        shutil.copytree(source_dir, dest, dirs_exist_ok=True,
+                        ignore=shutil.ignore_patterns("python", "__pycache__"))
 
         _install_python(dest)
         python = dest / "python" / "python.exe"
@@ -248,13 +291,21 @@ def install(engine_id: str, source_dir: Path, repo_dir: Path):
                     ["torch==2.11.0", "torchaudio==2.11.0",
                      "--index-url", f"https://download.pytorch.org/whl/{idx}"],
                     "installing-torch")
-        _run_uv(uv, python, ["-r", str(dest / "requirements.txt")], "installing-deps")
+        _run_uv(uv, python, ["-r", "requirements.txt"], "installing-deps", cwd=dest)
 
         if engine_id == "parakeet":
             _install_parakeet_models(repo_dir / "stt-parakeet" / "models")
             manifest["models_dir"] = "../../models/parakeet"
         elif engine_id == "parakeet-stream":
             _install_parakeet_models(repo_dir / "stt-parakeet" / "models")
+        elif engine_id == "qwen3":
+            if not _has_nvidia_gpu():
+                raise RuntimeError(
+                    "Qwen3-ASR requires an NVIDIA GPU (no nvidia-smi found). "
+                    "On CPU it runs at about 2x realtime, too slow for live captions.")
+            _install_qwen3_runtime()
+            download_qwen3_models()
+            manifest["models_dir"] = "../../models/qwen3"
         elif engine_id == "nano":
             _install_nano_binary(dest)
             download_nano_models()
@@ -264,10 +315,13 @@ def install(engine_id: str, source_dir: Path, repo_dir: Path):
         manifest["installed"] = True
         (dest / "engine.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
+        partial = False
         _set_job(phase="done", detail="", done=True)
         logger.info("Engine %s installed to %s", engine_id, dest)
     except Exception as e:
         logger.exception("Engine install failed")
+        if partial:
+            shutil.rmtree(dest, ignore_errors=True)
         _set_job(phase="error", error=str(e), done=True)
 
 

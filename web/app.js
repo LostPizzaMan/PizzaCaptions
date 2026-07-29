@@ -1896,6 +1896,7 @@ function setToolbarCredit(credit, termsUrl) {
     let s;
     try { s = await (await fetch('/tts/status')).json(); } catch { return; }
     const list = $('cfg-tts-list');
+    const vc = s.vc_runtime;
     list.innerHTML = (s.packs || []).map((p) => {
       const langs = (p.languages || []).join(', ').toUpperCase();
       const right = p.installed
@@ -1905,9 +1906,14 @@ function setToolbarCredit(credit, termsUrl) {
       const note = p.agreement_required
         ? `<div class="tts-pack-note">Requires accepting the VOICEVOX terms · credit each clip “${escHtml((p.voices[0] || {}).credit || 'VOICEVOX:キャラ名')}”.</div>`
         : '';
+      
+      const vcNote = (p.needs_vc_runtime && vc && !vc.ok)
+        ? `<div class="tts-pack-warn">Needs the Microsoft Visual C++ runtime, which this PC is missing.
+           <a href="${escHtml(vc.url)}">Get it from Microsoft ↗</a> (one time, then restart the app).</div>`
+        : '';
       return `<div class="tts-pack-row">
         <div class="tts-pack-info"><span class="tts-pack-name">${escHtml(p.name)}</span>
-        <span class="tts-pack-lang">${escHtml(langs)}</span>${note}</div>
+        <span class="tts-pack-lang">${escHtml(langs)}</span>${note}${vcNote}</div>
         <div class="tts-pack-actions">${right}</div></div>`;
     }).join('') || '<p style="font-size:12px;color:#777;">No voice packs found.</p>';
 

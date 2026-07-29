@@ -1,4 +1,5 @@
 import asyncio
+import ctypes
 import json
 import os
 import queue
@@ -6,10 +7,12 @@ import re
 import shutil
 import socket
 import subprocess
+import sys
 import threading
 import time
 import logging
 import webbrowser
+from collections import deque
 from contextlib import asynccontextmanager
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
@@ -35,7 +38,7 @@ from hallucinations import DEFAULT_BLOCKED_PHRASES
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
-APP_VERSION = "0.3.0"
+APP_VERSION = "0.3.1"
 
 SAMPLE_RATE = 16000
 CHUNK = 4096
@@ -118,6 +121,7 @@ class EngineManager:
         self.lock = threading.Lock()
         self.startup_phase: str = ""
         self.startup_detail: str = ""
+        self.recent_output: deque[str] = deque(maxlen=25)
 
     def refresh(self):
 
@@ -131,9 +135,12 @@ class EngineManager:
                     m.setdefault("kind", "asr")
                     m["_dir"] = mf.parent
                     m["_source"] = source
-                    m["_available"] = (mf.parent / m.get("python", "")).resolve().exists()
+                    complete = bool(m.get("installed")) if source == "installed" else True
+                    m["_available"] = complete and (mf.parent / m.get("python", "")).resolve().exists()
                     if m["id"] in manifests and not m["_available"]:
                         continue
+                    if manifests.get(m["id"], {}).get("needs_vc_runtime"):
+                        m.setdefault("needs_vc_runtime", True)
                     manifests[m["id"]] = m
                 except Exception as e:
                     logger.warning("Skipping bad engine manifest %s: %s", mf, e)
@@ -206,6 +213,7 @@ class EngineManager:
                "--port", str(port), "--language", language, "--model", model,
                "--models-dir", str(models_dir)]
         logger.info("Spawning engine %s (language=%s, model=%s, port=%d)", engine_id, language, model, port)
+        self.recent_output.clear()
         self.proc = subprocess.Popen(
             cmd, cwd=str(edir),
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
@@ -221,7 +229,7 @@ class EngineManager:
             if self.proc.poll() is not None:
                 code = self.proc.returncode
                 self.proc = None
-                raise RuntimeError(f"Engine {engine_id} exited with code {code} during startup (see log)")
+                raise RuntimeError(self._startup_failure(engine_id, code))
             try:
                 with urllib_request.urlopen(f"http://127.0.0.1:{port}/health", timeout=2) as r:
                     if r.status == 200:
@@ -236,6 +244,18 @@ class EngineManager:
         self.port, self.engine_id, self.language, self.model = port, engine_id, language, model
         self.startup_phase, self.startup_detail = "ready", ""
         logger.info("Engine %s ready on port %d", engine_id, port)
+
+    def _startup_failure(self, engine_id: str, code: int | None) -> str:
+
+        tail = list(self.recent_output)
+        blob, last = "\n".join(tail), (tail[-1] if tail else "")
+        if "ModuleNotFoundError" in blob:
+            return (f"Engine {engine_id} is missing its dependencies (incomplete install) - "
+                    f"reinstall it from Settings. ({last})")
+        if "DLL load failed" in blob:
+            return (f"Engine {engine_id} could not load its native libraries. Install the "
+                    f"Microsoft Visual C++ Redistributable (x64) and try again. ({last})")
+        return f"Engine {engine_id} exited with code {code} during startup (see log)"
 
     def _pump_output(self, proc: subprocess.Popen, engine_id: str):
         try:
@@ -254,6 +274,7 @@ class EngineManager:
                         self.startup_phase, self.startup_detail = "downloading", detail
                     if ch == "\n":
                         logger.info("[%s] %s", engine_id, line)
+                        self.recent_output.append(line)
                 else:
                     buf.append(ch)
         except Exception:
@@ -291,6 +312,22 @@ class TtsManager(EngineManager):
 
 
 _tts_mgr = TtsManager(ENGINES_DIR)
+
+
+
+VC_REDIST_URL = "https://aka.ms/vs/17/release/vc_redist.x64.exe"
+
+
+def _vc_runtime_ok() -> bool:
+
+    if sys.platform != "win32":
+        return True
+    try:
+        for dll in ("msvcp140.dll", "msvcp140_1.dll"):
+            ctypes.WinDLL(dll)
+        return True
+    except OSError:
+        return False
 
 
 def _tts_manifests() -> list[dict]:
@@ -396,8 +433,10 @@ def _tts_engine_for_voice(voice: str):
 
 def _default_tts_voice() -> str:
 
-    if _tts_voice and _tts_engine_for_voice(_tts_voice)[0] is not None:
-        return _tts_voice
+    if _tts_voice:
+        m, _v = _tts_engine_for_voice(_tts_voice)
+        if m is not None and m.get("_available"):
+            return _tts_voice
     for m in sorted(_tts_manifests(), key=lambda x: x["id"]):
         if not m.get("_available"):
             continue
@@ -1197,6 +1236,7 @@ def tts_status():
             "languages": m.get("languages", []),
             "installed": bool(m.get("_available")),
             "source": m.get("_source"),
+            "needs_vc_runtime": bool(m.get("needs_vc_runtime")),
             "default_voice": str(m["default_voice"]) if m.get("default_voice") is not None else None,
             "voices": _voice_entries(m),
             "agreement_required": bool(lic.get("agreement_required")),
@@ -1214,6 +1254,7 @@ def tts_status():
         "detail": _tts_mgr.startup_detail,
         "selected_voice": selected,
         "packs": packs,
+        "vc_runtime": {"ok": _vc_runtime_ok(), "url": VC_REDIST_URL},
     }
 
 
@@ -1474,12 +1515,23 @@ def _parse_version(s: str) -> tuple | None:
         return None
 
 
+def _latest_release_via_redirect() -> tuple[str, str]:
+
+    req = urllib_request.Request(UPDATE_URL, headers={"User-Agent": f"LiveTranscription/{APP_VERSION}"})
+    with urllib_request.urlopen(req, timeout=5) as r:
+        final = r.url
+    if "/releases/tag/" not in final:
+        raise RuntimeError(f"unexpected releases URL: {final}")
+    return final.rstrip("/").rsplit("/", 1)[-1], final
+
+
 @app.get("/update/check")
 def update_check(force: bool = False):
     now = time.time()
     if not force and _update_cache["result"] is not None and now - _update_cache["checked"] < _UPDATE_TTL:
         return _update_cache["result"]
     result = {"current": APP_VERSION, "latest": None, "update_available": False, "url": UPDATE_URL}
+    tag, url = "", ""
     try:
         req = urllib_request.Request(
             f"https://api.github.com/repos/{UPDATE_REPO}/releases/latest",
@@ -1488,14 +1540,18 @@ def update_check(force: bool = False):
         )
         with urllib_request.urlopen(req, timeout=5) as r:
             rel = json.loads(r.read())
-        latest = _parse_version(rel.get("tag_name", ""))
-        current = _parse_version(APP_VERSION)
-        if latest and current:
-            result["latest"] = rel["tag_name"].lstrip("vV")
-            result["update_available"] = latest > current
-            result["url"] = rel.get("html_url") or UPDATE_URL
+        tag, url = rel.get("tag_name", ""), rel.get("html_url") or UPDATE_URL
     except Exception as e:
-        logger.info("Update check failed: %s", e)
+        logger.info("Update check via API failed: %s", e)
+        try:
+            tag, url = _latest_release_via_redirect()
+        except Exception as e2:
+            logger.info("Update check failed: %s", e2)
+    latest, current = _parse_version(tag), _parse_version(APP_VERSION)
+    if latest and current:
+        result["latest"] = tag.lstrip("vV")
+        result["update_available"] = latest > current
+        result["url"] = url or UPDATE_URL
     _update_cache.update(checked=now, result=result)
     return result
 
