@@ -34,7 +34,7 @@ Real-time speech transcription and translation running entirely on your machine.
 | **Whisper** (WhisperLiveKit) | Best accuracy, wants an NVIDIA GPU. ~All languages | ~3 GB |
 | **Parakeet Streaming** (experimental) | The same models as Parakeet, but captions appear as you speak instead of after each pause | Shares Parakeet's |
 | **Fun-ASR-Nano** (experimental) | Accuracy on CPU, if you can wait a second or two after each phrase. English, Japanese, Chinese | ~1.2 GB |
-| **Qwen3-ASR** (experimental) | Sharp on English, and it rarely invents a line out of background noise. Wants an NVIDIA GPU. English, Japanese + 9 more | ~3.4 GB |
+| **Qwen3-ASR** (experimental) | Another option if you have an NVIDIA GPU, alongside Whisper. English, Japanese + 9 more | ~2.4 GB |
 
 Setup offers Parakeet and Whisper; the experimental engines are in Settings → Engine.
 

@@ -1,7 +1,7 @@
 {
   "id": "qwen3",
   "kind": "asr",
-  "name": "Qwen3-ASR (most accurate English, NVIDIA GPU only)",
+  "name": "Qwen3-ASR (NVIDIA GPU only)",
   "protocol": 1,
   "experimental": true,
   "entry": "engine_server.py",
