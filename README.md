@@ -28,12 +28,15 @@ Real-time speech transcription and translation running entirely on your machine.
 2. Double-click **`Start LiveTranscription.bat`**. A console window stays open showing what the app is doing.
 3. First run: a setup wizard walks you through it, starting with which engine to install:
 
-| Engine | Best for | Download |
+| Engine | Best for | Models |
 |---|---|---|
-| **Parakeet** (sherpa-onnx) | Fast on any PC, no GPU needed. English, Japanese + 24 European languages | ~200 MB + models |
-| **Parakeet Streaming** (experimental) | The same models, but captions appear as you speak instead of after each pause | Shares Parakeet's models |
-| **Whisper** (WhisperLiveKit) | Best accuracy, wants an NVIDIA GPU. ~All languages | ~2.5 GB + models |
-| **Fun-ASR-Nano** (experimental) | Accuracy on CPU, if you can wait a second or two after each phrase. English, Japanese, Chinese | ~1.3 GB |
+| **Parakeet** (sherpa-onnx) | Fast on any PC, no GPU needed. English, Japanese + 24 European languages | ~640 MB per language |
+| **Whisper** (WhisperLiveKit) | Best accuracy, wants an NVIDIA GPU. ~All languages | ~3 GB |
+| **Parakeet Streaming** (experimental) | The same models as Parakeet, but captions appear as you speak instead of after each pause | Shares Parakeet's |
+| **Fun-ASR-Nano** (experimental) | Accuracy on CPU, if you can wait a second or two after each phrase. English, Japanese, Chinese | ~1.2 GB |
+| **Qwen3-ASR** (experimental) | Sharp on English, and it rarely invents a line out of background noise. Wants an NVIDIA GPU. English, Japanese + 9 more | ~3.4 GB |
+
+Setup offers Parakeet and Whisper; the experimental engines are in Settings → Engine.
 
 4. Optional: pick a translation backend in Settings and enable **Translate**.
 

@@ -274,6 +274,12 @@
     <section class="settings-page" id="page-phrases">
     <label class="config-label">Blocked Phrases <span style="color:#555;font-size:11px;">(one per line, matched as whole words; these are cut out of a line, and a line that is nothing else is dropped. Common Whisper hallucinations are blocked by default)</span></label>
     <textarea id="cfg-blocked-phrases" rows="4" placeholder="e.g. Thanks for watching"></textarea>
+
+    <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:#ccc;cursor:pointer;margin-top:14px;"
+           title="Some engines guess the language and can write Chinese or Japanese from a breath, a laugh, or music. This drops it.">
+      <input type="checkbox" id="cfg-other-alphabets" style="cursor:pointer;" />
+      <span>Discard non-English text <span style="color:#555;font-size:11px;">(only while the language is set to English)</span></span>
+    </label>
     </section>
 
     <section class="settings-page" id="page-about">
@@ -290,9 +296,21 @@
       <li><a href="https://huggingface.co/nvidia" target="_blank">NVIDIA Parakeet</a> models &middot; <span class="lic">CC-BY-4.0</span><br>
         <span class="desc">&copy; NVIDIA Corporation. Used under the
         <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank">Creative Commons Attribution 4.0 International License</a>.</span></li>
+      <li><a href="https://huggingface.co/FunAudioLLM/Fun-ASR-Nano-GGUF" target="_blank">Fun-ASR-Nano</a> models &middot; <span class="lic">Apache-2.0</span><br>
+        <span class="desc">&copy; FunAudioLLM. Run with the prebuilt CLI from the
+        <a href="https://github.com/modelscope/FunASR" target="_blank">FunASR</a> release (toolkit: MIT).</span></li>
+      <li><a href="https://huggingface.co/Qwen/Qwen3-ASR-1.7B" target="_blank">Qwen3-ASR</a> models &middot; <span class="lic">Apache-2.0</span><br>
+        <span class="desc">&copy; Qwen, in the
+        <a href="https://huggingface.co/ggml-org/Qwen3-ASR-1.7B-GGUF" target="_blank">GGUF conversion</a>
+        published by ggml-org.</span></li>
+      <li><a href="https://github.com/ggml-org/llama.cpp" target="_blank">llama.cpp</a> &middot; <span class="lic">MIT</span><br>
+        <span class="desc">&copy; 2023-2026 The ggml authors. GGUF inference runtime for the two
+        engines above.</span></li>
       <li><a href="https://github.com/snakers4/silero-vad" target="_blank">Silero VAD</a> &middot; <span class="lic">MIT</span><br>
         <span class="desc">Voice activity detection.</span></li>
     </ul>
+    <div style="font-size:11px;color:#666;line-height:1.5;">Model weights and engine binaries are
+    downloaded when you install an engine and are not redistributed with this app.</div>
 
     <div class="credits-head">Text to speech</div>
     <ul class="credits">

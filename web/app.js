@@ -366,6 +366,8 @@ function widenCuts(chars, drop) {
     let after = end;
     while (after < n && !ALNUM.test(chars[after])) after++;
     for (let x = end; x < after; x++) drop[x] = true;  
+    
+    for (let x = i - 1; x >= 0 && !ALNUM.test(chars[x]) && !/\s/.test(chars[x]); x--) drop[x] = true;
     if (after >= n) {
       
       for (let x = i - 1; x >= 0 && !ALNUM.test(chars[x]); x--) drop[x] = true;
@@ -394,15 +396,40 @@ function tidyAfterStrip(text) {
   return chars.join('').trim();
 }
 
-async function loadBlockedPhrases() {
+let discardOtherAlphabets = false;
+
+function englishModeSelected() {
+  return sourceLangSelect.value === 'en';
+}
+
+const OTHER_SCRIPT = /[^\p{Script=Latin}\p{Script=Common}\p{Script=Inherited}]/u;
+
+const WORTH_SHOWING = /[\p{Script=Latin}\p{Nd}]/u;
+
+function stripOtherAlphabets(text) {
+  const original = text || '';
+  const chars = Array.from(original);
+  const drop = chars.map((ch) => OTHER_SCRIPT.test(ch));
+  let kept = original;
+  if (drop.some(Boolean)) {
+    widenCuts(chars, drop);
+    kept = tidyAfterStrip(chars.filter((_, i) => !drop[i]).join(''));
+  }
+  
+  if (!WORTH_SHOWING.test(kept)) kept = '';
+  return { text: kept, removed: kept !== original };
+}
+
+async function loadFilterConfig() {
   try {
     const res = await fetch('/config');
     const c = await res.json();
     blockedPhrases = [...(c.default_blocked_phrases || []), ...(c.blocked_phrases || [])]
       .map(normalizeForBlocklist)
       .filter(Boolean);
+    discardOtherAlphabets = c.discard_other_alphabets === true;
   } catch (e) {
-    console.error('Failed to load blocked phrases:', e);
+    console.error('Failed to load hallucination filter config:', e);
   }
 }
 
@@ -605,8 +632,15 @@ function commitActiveLine() {
   const raw = activeLine.querySelector('.text').textContent.trim();
   
   const stripped = raw ? stripBlockedPhrases(raw) : { text: '', removed: false };
-  const text = stripped.text;
+  let text = stripped.text;
   if (stripped.removed) console.warn('Blocked phrase filtered:', raw, '->', text || '(dropped)');
+  if (discardOtherAlphabets && text && englishModeSelected()) {
+    const latin = stripOtherAlphabets(text);
+    if (latin.removed) {
+      console.warn('Other-alphabet text filtered:', text, '->', latin.text || '(dropped)');
+      text = latin.text;
+    }
+  }
   
   if (raw && !text) {
     shownChars = latestLineLength;
@@ -1022,7 +1056,7 @@ async function reconnect() {
   }
 }
 
-loadBlockedPhrases();
+loadFilterConfig();
 loadEngines();
 fetch('/version').then(r => r.json()).then(v => {
   document.getElementById('cfg-version').textContent = `v${v.version}`;
@@ -1211,9 +1245,12 @@ function openWizard() {
   setStatus('', 'Welcome');
   wizardBackdrop.classList.add('open');
   const box = document.getElementById('wiz-engines');
+  
+  const offered = engineInfo.engines.filter(e => !e.experimental);
+  const choices = offered.length ? offered : engineInfo.engines;
   const rec = engineInfo?.has_nvidia_gpu ? 'whisper' : 'parakeet';
-  wizEngineChoice = engineInfo.engines.some(e => e.id === rec) ? rec : engineInfo.engines[0]?.id;
-  box.innerHTML = engineInfo.engines.map(e => {
+  wizEngineChoice = choices.some(e => e.id === rec) ? rec : choices[0]?.id;
+  box.innerHTML = choices.map(e => {
     const size = e.id === 'whisper' ? '2-4 GB download' : 'about 1 GB download';
     const badge = e.id === wizEngineChoice ? '<span class="badge">Recommended for your PC</span>' : '';
     return `<div class="wiz-engine-card${e.id === wizEngineChoice ? ' selected' : ''}" data-engine="${e.id}">
@@ -1528,6 +1565,7 @@ async function loadConfig() {
     document.getElementById('cfg-ollama-model').value        = c.ollama_model || '';
     document.getElementById('cfg-ollama-temp').value         = c.ollama_temperature ?? '';
     document.getElementById('cfg-blocked-phrases').value     = (c.blocked_phrases || []).join('\n');
+    document.getElementById('cfg-other-alphabets').checked    = c.discard_other_alphabets === true;
     updateConfigSections();
   } catch (e) {
     console.error('Failed to load config:', e);
@@ -1573,9 +1611,10 @@ cfgSave.addEventListener('click', async () => {
         ollama_temperature:     parseTemp('cfg-ollama-temp'),
         blocked_phrases:        document.getElementById('cfg-blocked-phrases').value
                                   .split('\n').map(s => s.trim()).filter(Boolean),
+        discard_other_alphabets: document.getElementById('cfg-other-alphabets').checked,
       })
     });
-    await loadBlockedPhrases();
+    await loadFilterConfig();
     cfgStatus.style.color = '';
     cfgStatus.textContent = 'Saved ✓';
     setTimeout(() => { cfgStatus.textContent = ''; }, 2000);

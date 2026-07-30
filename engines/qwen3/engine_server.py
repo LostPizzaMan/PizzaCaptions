@@ -1,15 +1,19 @@
 import argparse
 import asyncio
+import base64
+import io
 import json
 import logging
 import os
 import queue
+import shutil
 import subprocess
-import tempfile
+import sys
 import threading
 import time
 import wave
 from pathlib import Path
+from urllib import request as urllib_request
 
 import numpy as np
 import sherpa_onnx
@@ -17,97 +21,124 @@ import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
-logger = logging.getLogger("nano-engine")
+logger = logging.getLogger("qwen3-engine")
 
 SAMPLE_RATE = 16000
 
 VAD_THRESHOLD = float(os.environ.get("VAD_THRESHOLD", "0.5"))
-VAD_MIN_SILENCE_S = float(os.environ.get("VAD_MIN_SILENCE_S", "0.7"))
+VAD_MIN_SILENCE_S = float(os.environ.get("VAD_MIN_SILENCE_S", "0.5"))
 VAD_MIN_SPEECH_S = float(os.environ.get("VAD_MIN_SPEECH_S", "0.25"))
 VAD_MAX_SPEECH_S = float(os.environ.get("VAD_MAX_SPEECH_S", "20.0"))
 VAD_BUFFER_S = 60.0
 VAD_WINDOW = 512
 
-FLUSH_PEAK = 3 / 32768
-FLUSH_HOLD = 0.2
+FLUSH_PEAK = 1e-4
+FLUSH_HOLD = 0.35
 
-NANO_THREADS = os.environ.get("NANO_THREADS") or str(max(1, (os.cpu_count() or 4) // 2))
+CONTEXT_TOKENS = int(os.environ.get("QWEN3_CONTEXT", "4096"))
 
-_models_dir: Path | None = None
-_binary: Path | None = None
-_enc_gguf: Path | None = None
-_llm_gguf: Path | None = None
+ASR_MARKER = "<asr_text>"
+
 _session_lock = asyncio.Lock()
+_server_proc: subprocess.Popen | None = None
+_server_port: int = 0
+_models_dir: Path
 
 
-def _resolve_assets():
-
-    global _binary, _enc_gguf, _llm_gguf
-    pack = Path(__file__).parent
-    cand = [pack / "bin" / "llama-funasr-cli.exe", pack / "bin" / "llama-funasr-cli"]
-    _binary = next((c for c in cand if c.exists()), None)
-    if _binary is None:
-        raise FileNotFoundError(f"llama-funasr-cli not found in {pack/'bin'}")
-    md = _models_dir
-    _enc_gguf = md / "funasr-encoder-f16.gguf"
-    _llm_gguf = next((md / n for n in ("qwen3-0.6b-q8_0.gguf", "qwen3-0.6b-q5km.gguf")
-                      if (md / n).exists()), None)
-    if not _enc_gguf.exists() or _llm_gguf is None:
-        raise FileNotFoundError(f"Fun-ASR-Nano GGUF weights not found in {md}")
-    logger.info("Fun-ASR-Nano ready: %s + %s (%s threads)",
-                _binary.name, _llm_gguf.name, NANO_THREADS)
+def _has_nvidia_gpu() -> bool:
+    return shutil.which("nvidia-smi") is not None
 
 
-def _write_wav(path: str, samples_f32: np.ndarray):
+def _free_port() -> int:
+    import socket
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+def _start_llama_server(models_dir: Path) -> tuple[subprocess.Popen, int]:
+    exe = models_dir / "bin" / "llama-server.exe"
+    model = models_dir / "Qwen3-ASR-1.7B-Q8_0.gguf"
+    mmproj = models_dir / "mmproj-Qwen3-ASR-1.7B-Q8_0.gguf"
+    for p in (exe, model, mmproj):
+        if not p.exists():
+            raise FileNotFoundError(f"Qwen3 runtime file missing: {p}")
+
+    port = _free_port()
+    cmd = [str(exe), "-m", str(model), "--mmproj", str(mmproj),
+           "-ngl", "99", "--mmproj-offload",
+           "-c", str(CONTEXT_TOKENS), "-np", "1",
+           "--host", "127.0.0.1", "--port", str(port),
+           "-t", str(max(1, (os.cpu_count() or 4) // 2))]
+    logger.info("Starting llama-server on 127.0.0.1:%d", port)
+    proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT,
+                            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+
+    deadline = time.monotonic() + 180
+    while time.monotonic() < deadline:
+        if proc.poll() is not None:
+            raise RuntimeError(f"llama-server exited with code {proc.returncode} during startup")
+        try:
+            with urllib_request.urlopen(f"http://127.0.0.1:{port}/health", timeout=2) as r:
+                if r.status == 200 and b'"ok"' in r.read():
+                    logger.info("llama-server ready")
+                    return proc, port
+        except Exception:
+            pass
+        time.sleep(0.5)
+    proc.kill()
+    raise RuntimeError("llama-server did not become healthy in 180s")
+
+
+def _wav_bytes(samples_f32: np.ndarray) -> bytes:
     pcm = np.clip(samples_f32, -1.0, 1.0)
-    pcm = (pcm * 32767).astype(np.int16)
-    with wave.open(path, "wb") as w:
+    pcm = (pcm * 32767.0).astype(np.int16)
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as w:
         w.setnchannels(1)
         w.setsampwidth(2)
         w.setframerate(SAMPLE_RATE)
         w.writeframes(pcm.tobytes())
+    return buf.getvalue()
 
 
 def _transcribe(samples_f32: np.ndarray) -> str:
-
     if len(samples_f32) < SAMPLE_RATE * 0.05:
         return ""
-    fd, wav = tempfile.mkstemp(suffix=".wav", prefix="nano_")
-    os.close(fd)
-    try:
-        _write_wav(wav, samples_f32)
-        env = dict(os.environ)
-        env.setdefault("GGML_NTHREADS", NANO_THREADS)
-        proc = subprocess.run(
-            [str(_binary), "--enc", str(_enc_gguf), "-m", str(_llm_gguf), "-a", wav],
-            capture_output=True, text=True, encoding="utf-8", errors="ignore",
-            timeout=120, env=env,
-        )
-        text = " ".join(l.strip() for l in proc.stdout.splitlines() if l.strip())
-        return " ".join(t for t in text.split() if t != "/sil").strip()
-    except subprocess.TimeoutExpired:
-        logger.warning("Nano transcribe timed out")
-        return ""
-    finally:
-        try:
-            os.remove(wav)
-        except OSError:
-            pass
+    body = {
+        "messages": [{"role": "user", "content": [
+            {"type": "text", "text": "Transcribe the audio."},
+            {"type": "input_audio", "input_audio": {
+                "data": base64.b64encode(_wav_bytes(samples_f32)).decode(),
+                "format": "wav"}}]}],
+        "temperature": 0,
+        "max_tokens": 512,
+    }
+    req = urllib_request.Request(
+        f"http://127.0.0.1:{_server_port}/v1/chat/completions",
+        data=json.dumps(body).encode(),
+        headers={"Content-Type": "application/json"})
+    with urllib_request.urlopen(req, timeout=300) as r:
+        out = json.loads(r.read())
+    text = out["choices"][0]["message"]["content"]
+    if ASR_MARKER in text:
+        text = text.split(ASR_MARKER, 1)[1]
+    return text.replace("</asr_text>", " ").strip()
 
 
 def _build_vad() -> sherpa_onnx.VoiceActivityDetector:
     vad_path = _models_dir / "silero_vad.onnx"
     if not vad_path.exists():
         raise FileNotFoundError(f"Silero VAD model not found at {vad_path}")
-    vad_config = sherpa_onnx.VadModelConfig()
-    vad_config.silero_vad.model = str(vad_path)
-    vad_config.silero_vad.threshold = VAD_THRESHOLD
-    vad_config.silero_vad.min_silence_duration = VAD_MIN_SILENCE_S
-    vad_config.silero_vad.min_speech_duration = VAD_MIN_SPEECH_S
-    vad_config.silero_vad.window_size = VAD_WINDOW
-    vad_config.silero_vad.max_speech_duration = VAD_MAX_SPEECH_S
-    vad_config.sample_rate = SAMPLE_RATE
-    return sherpa_onnx.VoiceActivityDetector(vad_config, buffer_size_in_seconds=VAD_BUFFER_S)
+    cfg = sherpa_onnx.VadModelConfig()
+    cfg.silero_vad.model = str(vad_path)
+    cfg.silero_vad.threshold = VAD_THRESHOLD
+    cfg.silero_vad.min_silence_duration = VAD_MIN_SILENCE_S
+    cfg.silero_vad.min_speech_duration = VAD_MIN_SPEECH_S
+    cfg.silero_vad.window_size = VAD_WINDOW
+    cfg.silero_vad.max_speech_duration = VAD_MAX_SPEECH_S
+    cfg.sample_rate = SAMPLE_RATE
+    return sherpa_onnx.VoiceActivityDetector(cfg, buffer_size_in_seconds=VAD_BUFFER_S)
 
 
 app = FastAPI()
@@ -115,7 +146,7 @@ app = FastAPI()
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "engine": "nano"}
+    return {"status": "ok", "engine": "qwen3"}
 
 
 @app.websocket("/asr")
@@ -141,17 +172,20 @@ async def asr(ws: WebSocket):
                 emit({"type": "state", "state": "processing"})
                 duration = len(samples) / SAMPLE_RATE
                 t0 = time.perf_counter()
-                text = _transcribe(samples)
+                try:
+                    text = _transcribe(samples)
+                except Exception as e:
+                    logger.error("Transcription failed: %s", e)
+                    text = ""
                 elapsed = time.perf_counter() - t0
                 emit({"type": "state", "state": "listening"})
                 if not text:
                     continue
                 logger.info("Inference: %.2fs for %.2fs audio: %s", elapsed, duration, text)
                 line_count += 1
-                msg = {"lines": [{"text": text, "speaker": 0}],
-                       "line_count": line_count, "final": True,
-                       "decode_ms": round(elapsed * 1000)}
-                loop.call_soon_threadsafe(result_queue.put_nowait, msg)
+                emit({"lines": [{"text": text, "speaker": 0}],
+                      "line_count": line_count, "final": True,
+                      "decode_ms": round(elapsed * 1000)})
 
         inference_thread = threading.Thread(target=inference_worker, daemon=True)
         inference_thread.start()
@@ -225,11 +259,10 @@ async def asr(ws: WebSocket):
                 await sender
             except Exception:
                 pass
-            logger.info("Session ended")
 
 
 def main():
-    global _models_dir
+    global _models_dir, _server_proc, _server_port
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, required=True)
     parser.add_argument("--language", default="en")
@@ -238,9 +271,25 @@ def main():
     args = parser.parse_args()
 
     _models_dir = Path(args.models_dir)
-    _resolve_assets()
-    logger.info("Listening on 127.0.0.1:%d", args.port)
-    uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="warning")
+
+    if not _has_nvidia_gpu():
+        logger.error("Qwen3-ASR requires an NVIDIA GPU. On CPU this model runs at "
+                     "~2x realtime, too slow for live captions, so it will not start.")
+        raise SystemExit(2)
+
+    _server_proc, _server_port = _start_llama_server(_models_dir)
+
+    logger.info("Qwen3-ASR ready, listening on 127.0.0.1:%d", args.port)
+    try:
+        uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="warning")
+    finally:
+        if _server_proc and _server_proc.poll() is None:
+            logger.info("Stopping llama-server")
+            _server_proc.terminate()
+            try:
+                _server_proc.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                _server_proc.kill()
 
 
 if __name__ == "__main__":

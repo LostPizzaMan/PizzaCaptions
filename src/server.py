@@ -38,7 +38,7 @@ from hallucinations import DEFAULT_BLOCKED_PHRASES
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
-APP_VERSION = "0.3.1"
+APP_VERSION = "0.3.2"
 
 SAMPLE_RATE = 16000
 CHUNK = 4096
@@ -764,6 +764,8 @@ _CONFIG_FILE = APP_DATA_DIR / "config.json"
 
 _blocked_phrases: list[str] = []
 
+_discard_other_alphabets = False
+
 _active_engine = "whisper"
 _engine_models: dict[str, str] = {}
 
@@ -806,7 +808,7 @@ _CONFIG_FIELDS = {
 
 
 def _load_config():
-    global _blocked_phrases, _active_engine, _engine_models
+    global _blocked_phrases, _discard_other_alphabets, _active_engine, _engine_models
     global _stt_language, _target_language
     global _source_mode, _mic_device_name, _loopback_device_name
     global _min_sound_level, _wizard_done, _suppress_osc_when_muted
@@ -827,6 +829,8 @@ def _load_config():
         raw = cfg.get("blocked_phrases", [])
         if isinstance(raw, list):
             _blocked_phrases = [str(p).strip() for p in raw if str(p).strip()]
+        if isinstance(cfg.get("discard_other_alphabets"), bool):
+            _discard_other_alphabets = cfg["discard_other_alphabets"]
         if cfg.get("active_engine") in _engine_mgr.manifests:
             _active_engine = cfg["active_engine"]
         if isinstance(cfg.get("engine_models"), dict):
@@ -1827,6 +1831,7 @@ def get_config():
         "ollama_temperature":      m.OLLAMA_TEMPERATURE,
         "blocked_phrases":         _blocked_phrases,
         "default_blocked_phrases": DEFAULT_BLOCKED_PHRASES,
+        "discard_other_alphabets": _discard_other_alphabets,
         "active_engine":           _active_engine,
         "engine_models":           _engine_models,
         "stt_language":            _stt_language,
@@ -1847,7 +1852,7 @@ def get_config():
 
 @app.post("/config")
 async def set_config(payload: dict = Body(...)):
-    global _blocked_phrases, _target_language
+    global _blocked_phrases, _discard_other_alphabets, _target_language
     global _source_mode, _mic_device_name, _loopback_device_name
     global _min_sound_level, _wizard_done, _suppress_osc_when_muted
     m = _translate_module
@@ -1878,6 +1883,8 @@ async def set_config(payload: dict = Body(...)):
         if not isinstance(raw, list):
             raise HTTPException(status_code=400, detail="blocked_phrases must be a list")
         _blocked_phrases = [str(p).strip() for p in raw if str(p).strip()]
+    if isinstance(payload.get("discard_other_alphabets"), bool):
+        _discard_other_alphabets = payload["discard_other_alphabets"]
     for key, attr in _CONFIG_FIELDS.items():
         if key in payload:
             setattr(m, attr, payload[key])

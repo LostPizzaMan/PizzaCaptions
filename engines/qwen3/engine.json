@@ -1,0 +1,12 @@
+{
+  "id": "qwen3",
+  "kind": "asr",
+  "name": "Qwen3-ASR (most accurate English, NVIDIA GPU only)",
+  "protocol": 1,
+  "experimental": true,
+  "entry": "engine_server.py",
+  "python": "python/python.exe",
+  "languages": ["en", "ja", "zh", "ko", "es", "fr", "de", "it", "pt", "ru", "ar"],
+  "models": ["default"],
+  "default_model": "default"
+}

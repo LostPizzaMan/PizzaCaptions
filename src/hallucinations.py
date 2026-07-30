@@ -22,4 +22,5 @@ DEFAULT_BLOCKED_PHRASES = [
     "merci d'avoir regardé",
     "vielen dank fürs zuschauen",
     "gracias por ver el video",
+    "/sil",
 ]

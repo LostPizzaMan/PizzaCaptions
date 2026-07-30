@@ -16,8 +16,23 @@ Pizza Captions is built on the following open-source projects and models.
   © NVIDIA Corporation. Used under the Creative Commons Attribution 4.0
   International License (https://creativecommons.org/licenses/by/4.0/).
 
+- **[Fun-ASR-Nano](https://huggingface.co/FunAudioLLM/Fun-ASR-Nano-GGUF)** models - Apache-2.0
+  © FunAudioLLM. Run with the prebuilt CLI from the
+  [FunASR](https://github.com/modelscope/FunASR) release (toolkit: MIT).
+
+- **[Qwen3-ASR](https://huggingface.co/Qwen/Qwen3-ASR-1.7B)** models - Apache-2.0
+  © Qwen, in the [GGUF conversion](https://huggingface.co/ggml-org/Qwen3-ASR-1.7B-GGUF)
+  published by ggml-org.
+
+- **[llama.cpp](https://github.com/ggml-org/llama.cpp)** - MIT
+  © 2023-2026 The ggml authors. The GGUF inference runtime behind the two engines
+  above.
+
 - **[Silero VAD](https://github.com/snakers4/silero-vad)** - MIT
   Voice activity detection.
+
+Model weights and engine binaries are downloaded when you install an engine and
+are **not redistributed** with this app.
 
 ## Text to speech
 
