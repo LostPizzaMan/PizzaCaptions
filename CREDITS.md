@@ -9,6 +9,10 @@ Pizza Captions is built on the following open-source projects and models.
 
 - **[OpenAI Whisper](https://github.com/openai/whisper) models** - MIT
 
+- **[faster-whisper](https://github.com/SYSTRAN/faster-whisper)** - MIT
+  The backend WhisperLiveKit is run with here, built on
+  [CTranslate2](https://github.com/OpenNMT/CTranslate2) (MIT).
+
 - **[sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx)** - Apache-2.0
   ONNX Runtime-based streaming speech recognition.
 

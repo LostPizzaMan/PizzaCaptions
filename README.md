@@ -28,15 +28,15 @@ Real-time speech transcription and translation running entirely on your machine.
 2. Double-click **`Start LiveTranscription.bat`**. A console window stays open showing what the app is doing.
 3. First run: a setup wizard walks you through it, starting with which engine to install:
 
-| Engine | Best for | Models |
-|---|---|---|
-| **Parakeet** (sherpa-onnx) | Fast on any PC, no GPU needed. English, Japanese + 24 European languages | ~640 MB per language |
-| **Whisper** (WhisperLiveKit) | Best accuracy, wants an NVIDIA GPU. ~All languages | ~3 GB |
-| **Parakeet Streaming** (experimental) | The same models as Parakeet, but captions appear as you speak instead of after each pause | Shares Parakeet's |
-| **Fun-ASR-Nano** (experimental) | Accuracy on CPU, if you can wait a second or two after each phrase. English, Japanese, Chinese | ~1.2 GB |
-| **Qwen3-ASR** (experimental) | Another option if you have an NVIDIA GPU, alongside Whisper. English, Japanese + 9 more | ~2.4 GB |
+   | Engine | Best for | Models |
+   |---|---|---|
+   | **Parakeet** (sherpa-onnx) | Fast on any PC, no GPU needed. English, Japanese + 24 European languages | ~640 MB per language |
+   | **Whisper** (WhisperLiveKit) | Best accuracy, wants an NVIDIA GPU. ~All languages | ~3 GB |
+   | **Parakeet Streaming** (experimental) | The same models as Parakeet, but captions appear as you speak instead of after each pause | Shares Parakeet's |
+   | **Fun-ASR-Nano** (experimental) | Accuracy on CPU, if you can wait a second or two after each phrase. English, Japanese, Chinese | ~1.2 GB |
+   | **Qwen3-ASR** (experimental) | Another option if you have an NVIDIA GPU, alongside Whisper. English, Japanese + 9 more | ~2.4 GB |
 
-Setup offers Parakeet and Whisper; the experimental engines are in Settings → Engine.
+   Setup offers Parakeet and Whisper; the experimental engines are in Settings → Engine.
 
 4. Optional: pick a translation backend in Settings and enable **Translate**.
 
@@ -91,4 +91,5 @@ The optional text-to-speech feature can use **VOICEVOX** (Japanese) voices, powe
 
 ## License
 
-Proprietary - all rights reserved. See [LICENSE](LICENSE). Third-party components remain under their own licenses (see [CREDITS.md](CREDITS.md)).
+Source-available: free to use and modify for personal use, including in monetized streams and videos. No redistribution, but forking to open a pull request is
+welcome. See [LICENSE](LICENSE) and [CONTRIBUTING.md](CONTRIBUTING.md). Third-party components remain under their own licenses (see [CREDITS.md](CREDITS.md)).
