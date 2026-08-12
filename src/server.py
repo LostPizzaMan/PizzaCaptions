@@ -5,14 +5,12 @@ import os
 import queue
 import re
 import shutil
-import socket
 import subprocess
 import sys
 import threading
 import time
 import logging
 import webbrowser
-from collections import deque
 from contextlib import asynccontextmanager
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
@@ -31,14 +29,16 @@ from pythonosc.osc_server import ThreadingOSCUDPServer
 from pythonosc.udp_client import SimpleUDPClient
 
 import engine_install
+import jadict
+import ocr
 import translate as _translate_module
-import winjob
+from engine_base import EngineManager, ENGINES_DIR
 from hallucinations import DEFAULT_BLOCKED_PHRASES
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
-APP_VERSION = "0.3.2"
+APP_VERSION = "0.4.0"
 
 SAMPLE_RATE = 16000
 CHUNK = 4096
@@ -77,210 +77,6 @@ _target_language = "en-US"
 
 
 
-ENGINES_DIR = BASE_DIR / "engines"
-ENGINE_STARTUP_TIMEOUT = 1800
-
-
-def _free_port() -> int:
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
-
-
-_DL_SIZE_RE = re.compile(r"(\d+(?:\.\d+)?\s*[KMGT]i?B?\s*/\s*\d+(?:\.\d+)?\s*[KMGT]i?B?)", re.I)
-_DL_PCT_RE = re.compile(r"(\d{1,3})\s*%")
-
-
-def _download_detail(line: str) -> str | None:
-
-    low = line.lower()
-    if not ("%|" in line or "b/s" in low or "download" in low or "fetching" in low):
-        return None
-    pct = _DL_PCT_RE.search(line)
-    size = _DL_SIZE_RE.search(line)
-    if pct and size:
-        return f"{pct.group(1)}% ({size.group(1).replace(' ', '')})"
-    if pct:
-        return f"{pct.group(1)}%"
-    if size:
-        return size.group(1).replace(" ", "")
-    return "starting download..."
-
-
-class EngineManager:
-
-    def __init__(self, engines_dir: Path):
-        self.engines_dir = engines_dir
-        self.manifests: dict[str, dict] = {}
-        self.refresh()
-        self.proc: subprocess.Popen | None = None
-        self.port: int | None = None
-        self.engine_id: str | None = None
-        self.language: str | None = None
-        self.model: str | None = None
-        self.lock = threading.Lock()
-        self.startup_phase: str = ""
-        self.startup_detail: str = ""
-        self.recent_output: deque[str] = deque(maxlen=25)
-
-    def refresh(self):
-
-        manifests: dict[str, dict] = {}
-        for base, source in ((self.engines_dir, "dev"), (engine_install.PACKS_DIR, "installed")):
-            if not base.exists():
-                continue
-            for mf in sorted(base.glob("*/engine.json")):
-                try:
-                    m = json.loads(mf.read_text(encoding="utf-8"))
-                    m.setdefault("kind", "asr")
-                    m["_dir"] = mf.parent
-                    m["_source"] = source
-                    complete = bool(m.get("installed")) if source == "installed" else True
-                    m["_available"] = complete and (mf.parent / m.get("python", "")).resolve().exists()
-                    if m["id"] in manifests and not m["_available"]:
-                        continue
-                    if manifests.get(m["id"], {}).get("needs_vc_runtime"):
-                        m.setdefault("needs_vc_runtime", True)
-                    manifests[m["id"]] = m
-                except Exception as e:
-                    logger.warning("Skipping bad engine manifest %s: %s", mf, e)
-        self.manifests = manifests
-
-    def available(self, engine_id: str) -> bool:
-        m = self.manifests.get(engine_id)
-        return bool(m and m["_available"])
-
-    def running(self) -> bool:
-        return self.proc is not None and self.proc.poll() is None
-
-    def ensure(self, engine_id: str, language: str, model: str):
-        with self.lock:
-            if self.running() and (self.engine_id, self.language, self.model) == (engine_id, language, model):
-                return
-            self._stop_locked()
-            self._spawn_locked(engine_id, language, model)
-
-    def stop(self):
-        with self.lock:
-            self._stop_locked()
-
-    def restart(self) -> int | None:
-
-        with self.lock:
-            if self.engine_id is None:
-                return None
-            engine_id, language, model = self.engine_id, self.language, self.model
-            self._stop_locked()
-            self._spawn_locked(engine_id, language, model)
-            return self.port
-
-    def _stop_locked(self):
-        if self.proc is not None:
-            if self.proc.poll() is None:
-                logger.info("Stopping engine %s (pid %d)", self.engine_id, self.proc.pid)
-                self.proc.terminate()
-                try:
-                    self.proc.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    self.proc.kill()
-            self.proc = None
-        self.port = self.engine_id = self.language = self.model = None
-        self.startup_phase = self.startup_detail = ""
-
-    def _spawn_locked(self, engine_id: str, language: str, model: str):
-        self.startup_phase, self.startup_detail = "loading", ""
-        manifest = self.manifests.get(engine_id)
-        if manifest is None:
-            raise ValueError(f"Unknown engine: {engine_id}")
-        edir: Path = manifest["_dir"]
-        if manifest["_source"] == "installed":
-            src = self.engines_dir / engine_id / "engine_server.py"
-            dst = edir / "engine_server.py"
-            if src.exists() and (not dst.exists() or src.stat().st_mtime > dst.stat().st_mtime):
-                shutil.copy2(src, dst)
-                logger.info("Updated %s pack code from app copy", engine_id)
-        python = (edir / manifest["python"]).resolve()
-        if not python.exists():
-            raise RuntimeError(f"Engine {engine_id}: interpreter not found at {python}")
-        port = _free_port()
-        if manifest.get("models_dir"):
-            models_dir = (edir / manifest["models_dir"]).resolve()
-        elif manifest.get("models_engine"):
-            models_dir = engine_install.MODELS_DIR / manifest["models_engine"]
-        else:
-            models_dir = engine_install.MODELS_DIR / engine_id
-        cmd = [str(python), str(edir / manifest["entry"]),
-               "--port", str(port), "--language", language, "--model", model,
-               "--models-dir", str(models_dir)]
-        logger.info("Spawning engine %s (language=%s, model=%s, port=%d)", engine_id, language, model, port)
-        self.recent_output.clear()
-        self.proc = subprocess.Popen(
-            cmd, cwd=str(edir),
-            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-            text=True, encoding="utf-8", errors="replace",
-            env={**os.environ, "PYTHONIOENCODING": "utf-8"},
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-        )
-        winjob.assign(self.proc)
-        threading.Thread(target=self._pump_output, args=(self.proc, engine_id), daemon=True).start()
-
-        deadline = time.monotonic() + ENGINE_STARTUP_TIMEOUT
-        while time.monotonic() < deadline:
-            if self.proc.poll() is not None:
-                code = self.proc.returncode
-                self.proc = None
-                raise RuntimeError(self._startup_failure(engine_id, code))
-            try:
-                with urllib_request.urlopen(f"http://127.0.0.1:{port}/health", timeout=2) as r:
-                    if r.status == 200:
-                        break
-            except Exception:
-                pass
-            time.sleep(0.5)
-        else:
-            self._stop_locked()
-            raise RuntimeError(f"Engine {engine_id} did not become healthy in {ENGINE_STARTUP_TIMEOUT}s")
-
-        self.port, self.engine_id, self.language, self.model = port, engine_id, language, model
-        self.startup_phase, self.startup_detail = "ready", ""
-        logger.info("Engine %s ready on port %d", engine_id, port)
-
-    def _startup_failure(self, engine_id: str, code: int | None) -> str:
-
-        tail = list(self.recent_output)
-        blob, last = "\n".join(tail), (tail[-1] if tail else "")
-        if "ModuleNotFoundError" in blob:
-            return (f"Engine {engine_id} is missing its dependencies (incomplete install) - "
-                    f"reinstall it from Settings. ({last})")
-        if "DLL load failed" in blob:
-            return (f"Engine {engine_id} could not load its native libraries. Install the "
-                    f"Microsoft Visual C++ Redistributable (x64) and try again. ({last})")
-        return f"Engine {engine_id} exited with code {code} during startup (see log)"
-
-    def _pump_output(self, proc: subprocess.Popen, engine_id: str):
-        try:
-            buf: list[str] = []
-            while True:
-                ch = proc.stdout.read(1)
-                if not ch:
-                    break
-                if ch in ("\r", "\n"):
-                    line = "".join(buf).strip()
-                    buf.clear()
-                    if not line:
-                        continue
-                    detail = _download_detail(line)
-                    if detail:
-                        self.startup_phase, self.startup_detail = "downloading", detail
-                    if ch == "\n":
-                        logger.info("[%s] %s", engine_id, line)
-                        self.recent_output.append(line)
-                else:
-                    buf.append(ch)
-        except Exception:
-            pass
-
-
 _engine_mgr = EngineManager(ENGINES_DIR)
 
 
@@ -312,6 +108,54 @@ class TtsManager(EngineManager):
 
 
 _tts_mgr = TtsManager(ENGINES_DIR)
+
+
+_control_clients: set[WebSocket] = set()
+_captions_clients: set[WebSocket] = set()
+
+_main_loop: asyncio.AbstractEventLoop | None = None
+_ui_send_lock: asyncio.Lock | None = None
+
+
+async def _broadcast_text(text: str, targets=None):
+
+    if targets is None:
+        targets = (_control_clients, _captions_clients)
+    async with _ui_send_lock:
+        for clients in targets:
+            for ws in list(clients):
+                try:
+                    await ws.send_text(text)
+                except Exception:
+                    clients.discard(ws)
+
+
+async def _broadcast_control(msg: dict):
+    await _broadcast_text(json.dumps(msg))
+
+
+def _emit_ui(msg) -> None:
+
+    loop = _main_loop
+    if loop is None:
+        return
+    text = msg if isinstance(msg, str) else json.dumps(msg)
+    try:
+        asyncio.run_coroutine_threadsafe(_broadcast_text(text), loop)
+    except RuntimeError:
+        pass
+
+
+def _tag_result(text: str) -> str:
+
+    try:
+        obj = json.loads(text)
+    except (ValueError, TypeError):
+        return text
+    if not isinstance(obj, dict):
+        return text
+    obj["stream"] = "listener"
+    return json.dumps(obj)
 
 
 
@@ -515,6 +359,8 @@ def _resample_pcm(samples: np.ndarray, src: int, dst: int) -> np.ndarray:
 _playback_q: "queue.Queue" = queue.Queue()
 _playback_thread: threading.Thread | None = None
 _playback_lock = threading.Lock()
+_playback_abort = threading.Event()
+_playback_active = threading.Event()
 
 
 def _ensure_playback_thread():
@@ -551,7 +397,11 @@ def _play_clip(p: "pyaudio.PyAudio", pcm_bytes: bytes, src_rate: int, device_nam
         stream = p.open(format=pyaudio.paInt16, channels=1, rate=dev_rate, output=True,
                         output_device_index=idx, frames_per_buffer=16384)
         try:
-            stream.write(audio.tobytes())
+            step = 16384
+            for i in range(0, len(audio), step):
+                if _playback_abort.is_set():
+                    break
+                stream.write(audio[i:i + step].tobytes())
         finally:
             stream.stop_stream()
             stream.close()
@@ -560,6 +410,8 @@ def _play_clip(p: "pyaudio.PyAudio", pcm_bytes: bytes, src_rate: int, device_nam
     stream.start_stream()
     try:
         while stream.is_active():
+            if _playback_abort.is_set():
+                break
             time.sleep(0.03)
     finally:
         stream.stop_stream()
@@ -589,10 +441,14 @@ def _playback_worker():
             if item is None:
                 break
             pcm_bytes, src_rate, device_names = item
+            _playback_active.set()
             try:
                 _play_clip_multi(p, pcm_bytes, src_rate, device_names)
             except Exception as e:
                 logger.warning("TTS playback failed: %s", e)
+            finally:
+                _playback_active.clear()
+                _playback_abort.clear()
     finally:
         p.terminate()
 
@@ -605,6 +461,23 @@ def _enqueue_playback(pcm_bytes: bytes, src_rate: int, device_names: list[str]):
 def _stop_playback():
     if _playback_thread is not None:
         _playback_q.put(None)
+
+
+def _flush_playback():
+
+    dropped = 0
+    while True:
+        try:
+            item = _playback_q.get_nowait()
+        except queue.Empty:
+            break
+        if item is None:
+            _playback_q.put(None)
+            break
+        dropped += 1
+    if _playback_active.is_set():
+        _playback_abort.set()
+    return dropped
 
 
 
@@ -775,6 +648,9 @@ _loopback_device_name = ""
 
 _min_sound_level = 0.0
 
+_stt_max_phrase_s = 20.0
+_stt_engine_max_phrase = None
+
 _wizard_done = False
 
 _suppress_osc_when_muted = True
@@ -783,6 +659,16 @@ _suppress_osc_when_muted = True
 def _model_for(engine_id: str) -> str:
     manifest = _engine_mgr.manifests.get(engine_id, {})
     return _engine_models.get(engine_id) or manifest.get("default_model", "default")
+
+
+def _ensure_stt_engine():
+
+    global _stt_engine_max_phrase
+    if (_engine_mgr.running() and _active_engine != "whisper"
+            and _stt_engine_max_phrase != _stt_max_phrase_s):
+        _engine_mgr.stop()
+    _engine_mgr.ensure(_active_engine, _stt_language, _model_for(_active_engine))
+    _stt_engine_max_phrase = _stt_max_phrase_s
 
 _CONFIG_FIELDS = {
     "system_prompt_override":  "SYSTEM_PROMPT_OVERRIDE",
@@ -813,7 +699,7 @@ def _load_config():
     global _source_mode, _mic_device_name, _loopback_device_name
     global _min_sound_level, _wizard_done, _suppress_osc_when_muted
     global _tts_voice, _tts_output_device, _tts_monitor_device, _tts_terms_accepted
-    global _passthru_enabled
+    global _passthru_enabled, _stt_max_phrase_s
     if not _CONFIG_FILE.exists():
         return
     try:
@@ -843,6 +729,10 @@ def _load_config():
             _loopback_device_name = cfg["loopback_device_name"]
         if isinstance(cfg.get("min_sound_level"), (int, float)):
             _min_sound_level = min(1.0, max(0.0, float(cfg["min_sound_level"])))
+        v = cfg.get("stt_max_phrase_s")
+        if isinstance(v, (int, float)) and not isinstance(v, bool):
+            _stt_max_phrase_s = max(4.0, min(20.0, float(v)))
+            os.environ["VAD_MAX_SPEECH_S"] = str(_stt_max_phrase_s)
         if isinstance(cfg.get("wizard_done"), bool):
             _wizard_done = cfg["wizard_done"]
         if isinstance(cfg.get("suppress_osc_when_muted"), bool):
@@ -873,19 +763,27 @@ _load_config()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global _main_loop, _ui_send_lock
+    _main_loop = asyncio.get_running_loop()
+    _ui_send_lock = asyncio.Lock()
     start_osc_receiver()
     if _passthru_enabled:
         start_passthru()
     yield
+    _main_loop = None
     stop_osc_receiver()
     stop_capture()
     stop_passthru()
+    ocr.on_shutdown()
+    jadict.on_shutdown()
     _engine_mgr.stop()
     _tts_mgr.stop()
     _stop_playback()
 
 
 app = FastAPI(lifespan=lifespan)
+app.include_router(ocr.router)
+app.include_router(jadict.router)
 
 
 _ALLOWED_ORIGINS = frozenset({
@@ -1074,7 +972,8 @@ async def _open_engine_session(engine_port: int, stop_event: threading.Event):
     return ws
 
 
-def _capture_worker(device_index: int, stop_event: threading.Event, browser_ws: WebSocket, engine_port: int):
+def _capture_worker(device_index: int, stop_event: threading.Event, engine_port: int):
+
 
     async def run():
         p = pyaudio.PyAudio()
@@ -1097,7 +996,7 @@ def _capture_worker(device_index: int, stop_event: threading.Event, browser_ws: 
 
             engine_ws = await _open_engine_session(engine_port, stop_event)
 
-            await browser_ws.send_text(json.dumps({"type": "config", "useAudioWorklet": True}))
+            _emit_ui({"type": "config", "useAudioWorklet": True})
 
             resampler = _StreamResampler(sample_rate, SAMPLE_RATE) if sample_rate != SAMPLE_RATE else None
 
@@ -1120,11 +1019,7 @@ def _capture_worker(device_index: int, stop_event: threading.Event, browser_ws: 
                     gated = threshold > 0 and (now - last_loud) >= GATE_HOLD_S
                     if gated:
                         audio = np.zeros_like(audio)
-                    try:
-                        await browser_ws.send_text(json.dumps(
-                            {"type": "audio_level", "level": round(level, 3), "gated": gated}))
-                    except Exception:
-                        pass
+                    _emit_ui({"type": "audio_level", "level": round(level, 3), "gated": gated})
 
                     if resampler is not None:
                         audio = resampler.process(audio)
@@ -1138,11 +1033,7 @@ def _capture_worker(device_index: int, stop_event: threading.Event, browser_ws: 
                         break
                     if isinstance(message, bytes):
                         continue
-                    try:
-                        await browser_ws.send_text(message)
-                    except Exception as e:
-                        logger.error("Forward error: %s", e)
-                        break
+                    _emit_ui(_tag_result(message))
 
             recv_task = asyncio.create_task(recv_results())
             try:
@@ -1157,10 +1048,7 @@ def _capture_worker(device_index: int, stop_event: threading.Event, browser_ws: 
         except Exception as e:
             logger.error("Capture error: %s", e)
             if not stop_event.is_set():
-                try:
-                    await browser_ws.send_text(json.dumps({"type": "capture_ended"}))
-                except Exception:
-                    pass
+                _emit_ui({"type": "capture_ended"})
         finally:
             if engine_ws is not None:
                 try:
@@ -1176,14 +1064,14 @@ def _capture_worker(device_index: int, stop_event: threading.Event, browser_ws: 
     asyncio.run(run())
 
 
-def start_capture(device_index: int, browser_ws: WebSocket, engine_port: int):
+def start_capture(device_index: int, engine_port: int):
     global _capture_thread, _capture_stop, _last_device_index
     stop_capture()
     _last_device_index = device_index
     _capture_stop = threading.Event()
     _capture_thread = threading.Thread(
         target=_capture_worker,
-        args=(device_index, _capture_stop, browser_ws, engine_port),
+        args=(device_index, _capture_stop, engine_port),
         daemon=True,
     )
     _capture_thread.start()
@@ -1505,6 +1393,13 @@ async def tts_speak(payload: dict = Body(...)):
             "duration": len(pcm) / 2 / rate, "gen_ms": gen_ms}
 
 
+@app.post("/tts/stop")
+def tts_stop():
+
+    dropped = _flush_playback()
+    return {"ok": True, "dropped": dropped}
+
+
 
 UPDATE_REPO = "LostPizzaMan/PizzaCaptions"
 UPDATE_URL = f"https://github.com/{UPDATE_REPO}/releases/latest"
@@ -1769,6 +1664,7 @@ async def engines_remove(payload: dict = Body(...)):
     if _engine_mgr.running() and _engine_mgr.engine_id == engine_id:
         stop_capture()
         _engine_mgr.stop()
+    ocr.on_engine_removed(engine_id)
     engine_install.remove(engine_id)
     _engine_mgr.refresh()
     return {"ok": True}
@@ -1840,6 +1736,7 @@ def get_config():
         "mic_device_name":        _mic_device_name,
         "loopback_device_name":   _loopback_device_name,
         "min_sound_level":        _min_sound_level,
+        "stt_max_phrase_s":       _stt_max_phrase_s,
         "wizard_done":            _wizard_done,
         "suppress_osc_when_muted": _suppress_osc_when_muted,
         "tts_voice":              _tts_voice,
@@ -1854,7 +1751,7 @@ def get_config():
 async def set_config(payload: dict = Body(...)):
     global _blocked_phrases, _discard_other_alphabets, _target_language
     global _source_mode, _mic_device_name, _loopback_device_name
-    global _min_sound_level, _wizard_done, _suppress_osc_when_muted
+    global _min_sound_level, _wizard_done, _suppress_osc_when_muted, _stt_max_phrase_s
     m = _translate_module
     supported_backends = set(m._BACKENDS)
     backend = payload.get("translation_backend")
@@ -1874,6 +1771,12 @@ async def set_config(payload: dict = Body(...)):
         if not isinstance(v, (int, float)) or isinstance(v, bool) or not (0 <= v <= 1):
             raise HTTPException(status_code=400, detail="min_sound_level must be a number between 0 and 1")
         _min_sound_level = float(v)
+    if "stt_max_phrase_s" in payload:
+        v = payload["stt_max_phrase_s"]
+        if not isinstance(v, (int, float)) or isinstance(v, bool) or not (4 <= v <= 20):
+            raise HTTPException(status_code=400, detail="stt_max_phrase_s must be a number between 4 and 20")
+        _stt_max_phrase_s = float(v)
+        os.environ["VAD_MAX_SPEECH_S"] = str(_stt_max_phrase_s)
     if isinstance(payload.get("wizard_done"), bool):
         _wizard_done = payload["wizard_done"]
     if isinstance(payload.get("suppress_osc_when_muted"), bool):
@@ -1906,6 +1809,11 @@ async def translate(payload: dict = Body(...)):
         result = await asyncio.to_thread(_translate_module.translate, text, source_language, target_language)
         if isinstance(result, dict):
             result.setdefault("translate_ms", round((time.perf_counter() - t0) * 1000))
+            translated = (result.get("translated") or "").strip()
+            if translated and _captions_clients:
+                await _broadcast_text(
+                    json.dumps({"type": "translation", "source": text, "text": translated}),
+                    (_captions_clients,))
         return result
     except RuntimeError as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -1917,8 +1825,8 @@ async def translate(payload: dict = Body(...)):
 async def _resume_capture(ws: WebSocket) -> bool:
     if _last_device_index is None:
         return False
-    await asyncio.to_thread(_engine_mgr.ensure, _active_engine, _stt_language, _model_for(_active_engine))
-    start_capture(_last_device_index, ws, _engine_mgr.port)
+    await asyncio.to_thread(_ensure_stt_engine)
+    start_capture(_last_device_index, _engine_mgr.port)
     await ws.send_text(json.dumps({"status": "capture_started"}))
     return True
 
@@ -1932,6 +1840,7 @@ async def control_ws(ws: WebSocket):
         await ws.close(code=1008)
         return
     await ws.accept()
+    _control_clients.add(ws)
     await ws.send_text(json.dumps({"status": "language_set", "language": _stt_language}))
     try:
         while True:
@@ -1950,14 +1859,12 @@ async def control_ws(ws: WebSocket):
                         "No transcription engine installed. Open Settings (⚙) and click Install"}))
                     continue
                 try:
-                    await asyncio.to_thread(
-                        _engine_mgr.ensure, _active_engine, _stt_language, _model_for(_active_engine)
-                    )
+                    await asyncio.to_thread(_ensure_stt_engine)
                 except Exception as e:
                     logger.error("Engine start failed: %s", e)
                     await ws.send_text(json.dumps({"error": f"Engine failed to start: {e}"}))
                     continue
-                start_capture(int(device_index), ws, _engine_mgr.port)
+                start_capture(int(device_index), _engine_mgr.port)
                 await ws.send_text(json.dumps({"status": "capture_started"}))
 
             elif action == "stop_capture":
@@ -2032,6 +1939,75 @@ async def control_ws(ws: WebSocket):
 
     except WebSocketDisconnect:
         stop_capture()
+    finally:
+        _control_clients.discard(ws)
+
+
+@app.websocket("/captions")
+async def captions_ws(ws: WebSocket):
+
+    origin = ws.headers.get("origin")
+    if not _origin_allowed(origin):
+        logger.warning("Rejected /captions connection from origin %s", origin)
+        await ws.close(code=1008)
+        return
+    await ws.accept()
+    _captions_clients.add(ws)
+    try:
+        while True:
+            await ws.receive_text()
+    except WebSocketDisconnect:
+        pass
+    finally:
+        _captions_clients.discard(ws)
+
+
+import overlay as _overlay
+
+
+@app.post("/overlay/show")
+def overlay_show():
+    _overlay.show()
+    return {"ok": True, "available": _overlay.available()}
+
+
+@app.post("/overlay/hide")
+def overlay_hide():
+    _overlay.hide()
+    return {"ok": True}
+
+
+import captions_overlay as _captions_overlay
+
+
+@app.post("/captions/overlay/show")
+def captions_overlay_show():
+    _captions_overlay.show()
+    return {"ok": True, "available": _captions_overlay.available()}
+
+
+@app.post("/captions/overlay/hide")
+def captions_overlay_hide():
+    _captions_overlay.hide()
+    return {"ok": True}
+
+
+@app.post("/captions/overlay/interact")
+def captions_overlay_interact(payload: dict = Body(...)):
+    _captions_overlay.set_interactive(bool(payload.get("on")))
+    return {"ok": True}
+
+
+@app.post("/captions/overlay/hover")
+def captions_overlay_hover(payload: dict = Body(...)):
+    _captions_overlay.set_hover(bool(payload.get("on")))
+    return {"ok": True}
+
+
+@app.post("/captions/overlay/blur")
+def captions_overlay_blur(payload: dict = Body(...)):
+    _captions_overlay.set_blur(bool(payload.get("on")))
+    return {"ok": True}
 
 
 

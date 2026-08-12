@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import shutil
+import sqlite3
 import subprocess
 import sys
 import tarfile
@@ -57,6 +58,19 @@ QWEN3_MODEL_FILES = {
     "Qwen3-ASR-1.7B-Q8_0.gguf": f"{_QWEN3_GGUF}/Qwen3-ASR-1.7B-Q8_0.gguf",
     "mmproj-Qwen3-ASR-1.7B-Q8_0.gguf": f"{_QWEN3_GGUF}/mmproj-Qwen3-ASR-1.7B-Q8_0.gguf",
 }
+
+_PPOCR_HF = "https://huggingface.co/PaddlePaddle"
+_PPOCR_FILES = ("inference.onnx", "inference.json", "inference.yml")
+OCR_MODEL_REPOS = {
+    "tiny":   ("PP-OCRv6_tiny_det_onnx",   "PP-OCRv6_tiny_rec_onnx"),
+    "small":  ("PP-OCRv6_small_det_onnx",  "PP-OCRv6_small_rec_onnx"),
+    "medium": ("PP-OCRv6_medium_det_onnx", "PP-OCRv6_medium_rec_onnx"),
+}
+
+JADICT_DICT_URL = (
+    "https://github.com/LostPizzaMan/PizzaCaptions-Assets/releases/download/"
+    "dictionary/jadict.sqlite"
+)
 
 _job_lock = threading.Lock()
 _job: dict = {"engine": None, "phase": "idle", "detail": "", "error": None, "done": True}
@@ -183,6 +197,31 @@ def start_model_download(model_id: str) -> bool:
     return True
 
 
+def start_jadict_download() -> bool:
+
+    with _job_lock:
+        if not _job["done"]:
+            return False
+        _job.update(engine="jadict", phase="starting", detail="", error=None, done=False)
+
+    def run():
+        try:
+            download_jadict_dict()
+            _set_job(phase="done", detail="", done=True)
+        except Exception as e:
+            logger.exception("Dictionary download failed")
+            _set_job(phase="error", error=str(e), done=True)
+
+    threading.Thread(target=run, daemon=True).start()
+    return True
+
+
+def remove_jadict_data():
+    target = MODELS_DIR / "jadict"
+    if target.exists():
+        shutil.rmtree(target, ignore_errors=True)
+
+
 def _install_parakeet_models(dev_models: Path | None):
     target = MODELS_DIR / "parakeet"
     target.mkdir(parents=True, exist_ok=True)
@@ -233,6 +272,50 @@ def _install_nano_binary(dest: Path):
             (bin_dir / Path(member).name).write_bytes(data)
     if not (bin_dir / "llama-funasr-cli.exe").exists():
         raise RuntimeError("llama-funasr-cli.exe missing from FunASR runtime archive")
+
+
+def download_ocr_models(tier: str = "medium"):
+
+    repos = OCR_MODEL_REPOS.get(tier)
+    if repos is None:
+        raise ValueError(f"Unknown OCR tier: {tier}")
+    target = MODELS_DIR / "ocr"
+    for repo in repos:
+        for fname in _PPOCR_FILES:
+            dst = target / repo / fname
+            if not dst.exists():
+                _download(f"{_PPOCR_HF}/{repo}/resolve/main/{fname}", dst, "downloading-models")
+
+
+def _valid_jadict(path: Path) -> bool:
+
+    try:
+        con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        try:
+            return con.execute("SELECT COUNT(*) FROM entries").fetchone()[0] > 0
+        finally:
+            con.close()
+    except Exception:
+        return False
+
+
+def download_jadict_dict():
+
+    target = MODELS_DIR / "jadict"
+    target.mkdir(parents=True, exist_ok=True)
+    dst = target / "jadict.sqlite"
+
+    if dst.exists() and _valid_jadict(dst):
+        return
+    if dst.exists():
+        dst.unlink()
+
+    _download(JADICT_DICT_URL, dst, "downloading-models")
+    if not _valid_jadict(dst):
+        dst.unlink(missing_ok=True)
+        raise RuntimeError(
+            "downloaded jadict.sqlite is not a valid dictionary (corrupt or "
+            "truncated download); check the release asset.")
 
 
 def download_qwen3_models():
@@ -310,6 +393,9 @@ def install(engine_id: str, source_dir: Path, repo_dir: Path):
             _install_nano_binary(dest)
             download_nano_models()
             manifest["models_dir"] = "../../models/nano"
+        elif engine_id == "ocr":
+            download_ocr_models(manifest.get("default_model", "medium"))
+            manifest["models_dir"] = "../../models/ocr"
 
         manifest["python"] = "python/python.exe"
         manifest["installed"] = True

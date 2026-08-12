@@ -1,0 +1,12 @@
+{
+  "id": "ocr",
+  "kind": "ocr",
+  "name": "Screen OCR (PP-OCRv6)",
+  "protocol": 1,
+  "experimental": true,
+  "entry": "engine_server.py",
+  "python": "python/python.exe",
+  "languages": ["multi"],
+  "models": ["tiny", "small", "medium"],
+  "default_model": "medium"
+}

@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>overlay</title>
+  <style>
+    html, body { margin: 0; height: 100%; background: transparent; overflow: hidden;
+      font-family: 'Hiragino Kaku Gothic Pro', 'Meiryo', sans-serif; cursor: crosshair;
+      user-select: none; }
+    #scrim { position: fixed; inset: 0; background: rgba(0,0,0,0.10); }
+    #sel { position: fixed; display: none; border: 1.5px solid #685EBD;
+      box-shadow: 0 0 0 100vmax rgba(0,0,0,0.38); }
+    #hint { position: fixed; left: 50%; top: 22px; transform: translateX(-50%);
+      background: rgba(20,20,24,0.92); color: #fff; font-size: 13px; line-height: 1.3;
+      padding: 9px 15px; border-radius: 8px; border: 1px solid #3a3a3a;
+      box-shadow: 0 6px 20px rgba(0,0,0,0.5); pointer-events: none; white-space: nowrap; }
+    #hint b { color: #b3aaff; }
+    
+    .obox { position: fixed; display: flex; align-items: center; cursor: default;
+      border: 1px solid rgba(104,94,189,0.7); background: rgba(104,94,189,0.10);
+      transition: background 0.08s; }
+    .obox:hover { background: #0f0f14; border-color: #685EBD; z-index: 4; }
+    .obox-t { display: none; min-width: 0; overflow: hidden; white-space: nowrap;
+      color: #fff; line-height: 1; padding: 0 1px;
+      text-shadow: 0 0 2px #000, 0 0 3px #000, 0 1px 2px #000; }
+    .obox:hover .obox-t { display: block; }
+    
+    .obox.vert { justify-content: center; }
+    .obox.vert .obox-t { writing-mode: vertical-rl; padding: 1px 0; }
+    
+    .jarun { cursor: pointer; border-radius: 3px; transition: background 0.08s; }
+    .jarun:hover { background: rgba(104,94,189,0.42); }
+    .jaword-active { background: rgba(104,94,189,0.42); border-radius: 3px; }
+    ::highlight(jascan) { background: rgba(104,94,189,0.42); }
+    .jadict-head ruby { ruby-align: center; }
+    .jadict-head rt { font-size: 0.5em; line-height: 1; color: #9a90e0; font-weight: 400; user-select: none; }
+    .jadict-pop { position: fixed; z-index: 200; max-width: 340px; max-height: 60vh; overflow-y: auto;
+      background: #1a1a1a; border: 1px solid #3a3a3a; border-radius: 8px; box-shadow: 0 8px 28px rgba(0,0,0,0.55);
+      padding: 12px 14px; font-size: 13px; line-height: 1.5; color: #ddd; cursor: default; }
+    .jadict-pop[hidden] { display: none; }
+    .jadict-entry + .jadict-entry { margin-top: 10px; padding-top: 10px; border-top: 1px solid #2a2a2a; }
+    .jadict-head { font-size: 17px; font-weight: 600; color: #fff; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+    .jadict-reading { font-size: 13px; font-weight: 400; color: #9a90e0; }
+    .jadict-common { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: #fff; background: #685EBD; border-radius: 4px; padding: 1px 5px; }
+    .jadict-reasons { margin-top: 3px; font-size: 11px; color: #888; font-family: Consolas, monospace; }
+    .jadict-senses { margin: 7px 0 0; padding-left: 18px; }
+    .jadict-senses li { margin-bottom: 3px; }
+    .jadict-pos { color: #7f8; font-size: 11px; font-family: Consolas, monospace; }
+    .jadict-loading, .jadict-empty { margin-top: 6px; color: #888; font-size: 12px; }
+    .ocr-tpop { position: fixed; z-index: 200; max-width: 340px; max-height: 50vh; overflow-y: auto; background: #1a1a1a;
+      border: 1px solid #3a3a3a; border-radius: 8px; box-shadow: 0 8px 28px rgba(0,0,0,0.55); padding: 10px 12px; font-size: 13px; line-height: 1.5; cursor: default; }
+    .ocr-tpop[hidden] { display: none; }
+    .ocr-tpop-head { display: flex; align-items: center; gap: 6px; margin-bottom: 7px; font-size: 11px; color: #888; }
+    .ocr-tpop-lang { background: #242424; border: 1px solid #3a3a3a; border-radius: 5px; color: #ddd; font-size: 12px; padding: 2px 6px; cursor: pointer; }
+    .ocr-tpop-src { color: #888; font-size: 12px; margin-bottom: 6px; padding-bottom: 6px; border-bottom: 1px solid #2a2a2a; }
+    .ocr-tpop-out { color: #fff; }
+    .ocr-tpop-out.err { color: #c88; }
+    .ocr-menu { position: fixed; z-index: 210; min-width: 128px; display: flex; flex-direction: column; padding: 4px; background: #1a1a1a;
+      border: 1px solid #3a3a3a; border-radius: 7px; box-shadow: 0 8px 24px rgba(0,0,0,0.55); font-size: 13px; }
+    .ocr-menu[hidden] { display: none; }
+    .ocr-menu-item { text-align: left; background: none; border: none; color: #ddd; font-size: 13px; padding: 7px 12px; border-radius: 5px; cursor: pointer; }
+    .ocr-menu-item:hover { background: #685EBD; color: #fff; }
+  </style>
+</head>
+<body>
+  <div id="scrim"></div>
+  <div id="sel"></div>
+  <div id="boxes"></div>
+  <div id="hint"></div>
+  <script src="/vendor/kuromoji/kuromoji.js"></script>
+  <script src="/ocr-interact.js?v=46"></script>
+  <script>
+    const scrim = document.getElementById('scrim');
+    const sel = document.getElementById('sel');
+    const boxes = document.getElementById('boxes');
+    const hint = document.getElementById('hint');
+    const IDLE = 'Drag a region to read &middot; <b>Esc</b> to close';
+    let dragging = false, sx = 0, sy = 0, busy = false;
+
+    function reset() {
+      dragging = false;
+      sel.style.display = 'none';
+      scrim.style.display = '';
+      boxes.innerHTML = '';
+      hint.style.display = '';
+      hint.innerHTML = IDLE;
+    }
+    window.__overlayReset = reset;   
+
+    const raf = () => new Promise((r) => requestAnimationFrame(() => r()));
+    const dpr = () => window.devicePixelRatio || 1;
+
+    function rectOf(e) {
+      return { x: Math.min(sx, e.clientX), y: Math.min(sy, e.clientY),
+               w: Math.abs(e.clientX - sx), h: Math.abs(e.clientY - sy) };
+    }
+    function draw(r) {
+      sel.style.left = r.x + 'px'; sel.style.top = r.y + 'px';
+      sel.style.width = r.w + 'px'; sel.style.height = r.h + 'px';
+    }
+
+    async function readRegion(r) {
+      if (busy) return;
+      busy = true;
+      
+      sel.style.display = 'none'; scrim.style.display = 'none'; hint.style.display = 'none';
+      boxes.innerHTML = '';
+      await raf(); await raf();
+      try {
+        const cap = await (await fetch('/ocr/capture')).json();
+        const scale = dpr();
+        const ix = Math.round(r.x * scale - cap.left);
+        const iy = Math.round(r.y * scale - cap.top);
+        const iw = Math.max(1, Math.round(r.w * scale));
+        const ih = Math.max(1, Math.round(r.h * scale));
+        const img = new Image();
+        img.src = cap.png;
+        await img.decode();
+        const cv = document.createElement('canvas');
+        cv.width = iw; cv.height = ih;
+        cv.getContext('2d').drawImage(img, ix, iy, iw, ih, 0, 0, iw, ih);
+        const blob = await new Promise((res) => cv.toBlob(res, 'image/png'));
+        hint.style.display = ''; hint.innerHTML = 'Reading&hellip;';
+        const rr = await fetch('/ocr/recognize', {
+          method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: blob,
+        });
+        if (!rr.ok) {
+          hint.innerHTML = (rr.status === 409 ? 'Install OCR first' : 'OCR failed')
+            + ' &middot; <b>Esc</b> to close';
+          return;
+        }
+        const j = await rr.json();
+        drawBoxes(r, j.lines || []);
+        hint.innerHTML = `${(j.lines || []).length} lines &middot; drag again &middot; <b>Esc</b> to close`;
+      } catch (e) {
+        hint.style.display = ''; hint.innerHTML = 'OCR error &middot; <b>Esc</b> to close';
+      } finally {
+        busy = false;
+      }
+    }
+
+    function drawBoxes(r, lines) {
+      boxes.innerHTML = '';
+      const scale = dpr();
+      lines.forEach((ln) => {
+        if (!ln.box) return;
+        const [bx, by, bw, bh] = ln.box;               
+        const d = document.createElement('div');
+        d.className = 'obox';
+        
+        const vert = bh > bw * 1.5;
+        if (vert) d.classList.add('vert');
+        
+        d.style.left = (r.x + bx / scale) + 'px';
+        d.style.top = (r.y + by / scale) + 'px';
+        d.style.width = (bw / scale) + 'px';
+        d.style.height = (bh / scale) + 'px';
+        d.style.fontSize = Math.max(8, Math.round(((vert ? bw : bh) / scale) * 0.82)) + 'px';
+        d.title = ln.text;
+        const t = document.createElement('span'); t.className = 'obox-t';
+        
+        if (window.jadict) window.jadict.renderJaText(t, ln.text); else t.textContent = ln.text;
+        d.appendChild(t);
+        d.addEventListener('contextmenu', (e) => {
+          e.preventDefault();
+          if (window.ocrKit) window.ocrKit.lineMenu(e.clientX, e.clientY, ln.text, d);
+        });
+        boxes.appendChild(d);
+      });
+    }
+
+    document.addEventListener('mousedown', (e) => {
+      if (e.button !== 0 || busy) return;
+      
+      if (e.target.closest('.obox, .jadict-pop, .ocr-tpop, .ocr-menu')) return;
+      dragging = true; sx = e.clientX; sy = e.clientY;
+      scrim.style.display = 'none'; boxes.innerHTML = '';
+      sel.style.display = 'block';
+      draw({ x: sx, y: sy, w: 0, h: 0 });
+    });
+    document.addEventListener('mousemove', (e) => { if (dragging) draw(rectOf(e)); });
+    document.addEventListener('mouseup', (e) => {
+      if (!dragging) return;
+      dragging = false;
+      const r = rectOf(e);
+      if (r.w < 4 || r.h < 4) { reset(); return; }   
+      readRegion(r);
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') fetch('/overlay/hide', { method: 'POST' }).catch(() => {});
+    });
+    reset();
+  </script>
+</body>
+</html>

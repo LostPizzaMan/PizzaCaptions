@@ -48,6 +48,8 @@ const deviceSelect  = document.getElementById('device-select');
 const levelBar      = document.getElementById('level-bar');
 const levelSlider   = document.getElementById('level-slider');
 const levelValue    = document.getElementById('level-value');
+const phraseSlider  = document.getElementById('phrase-slider');
+const phraseValue   = document.getElementById('phrase-value');
 const gateLineFill  = document.getElementById('gate-line-fill');
 const gateLineMark  = document.getElementById('gate-line-mark');
 
@@ -578,9 +580,7 @@ async function requestTranslation(text, segment) {
       const detail = typeof payload.detail === 'string' ? payload.detail : 'Translation failed';
       setSegmentTranslation(segment, `[Translation unavailable] ${detail}`);
       noteTranslationFailure(detail);
-      if (speakToggle.checked && window.ttsApi && speakSource() === 'translation') {
-        window.ttsApi.speakLine(text); 
-      }
+      
       await sendOscTranscript(text);
       await stopOscTyping();
       return;
@@ -598,9 +598,7 @@ async function requestTranslation(text, segment) {
   } catch (err) {
     setSegmentTranslation(segment, `[Translation unavailable] ${err.message}`);
     noteTranslationFailure(err.message);
-    if (speakToggle.checked && window.ttsApi && speakSource() === 'translation') {
-      window.ttsApi.speakLine(text); 
-    }
+    
     await sendOscTranscript(text);
     await stopOscTyping();
   }
@@ -656,7 +654,8 @@ function commitActiveLine() {
     hist.appendChild(timeDiv);
     const textDiv = document.createElement('div');
     textDiv.className = 'text';
-    textDiv.textContent = text;
+    
+    if (window.jadict) window.jadict.renderJaText(textDiv, text); else textDiv.textContent = text;
     hist.appendChild(textDiv);
     const translationDiv = document.createElement('div');
     translationDiv.className = 'translation';
@@ -1116,6 +1115,10 @@ document.addEventListener('click', (e) => {
     levelSlider.value = Math.round((c.min_sound_level || 0) * 100);
     levelValue.textContent = `${levelSlider.value}%`;
     setGateMark(levelSlider.value);
+    if (typeof c.stt_max_phrase_s === 'number') {
+      phraseSlider.value = Math.round(c.stt_max_phrase_s);
+      phraseValue.textContent = `${phraseSlider.value}s`;
+    }
     if (typeof c.suppress_osc_when_muted === 'boolean') muteSuppress.checked = c.suppress_osc_when_muted;
     if (c.source_mode === 'loopback') applySourceMode('loopback');
   } catch {  }
@@ -1141,6 +1144,15 @@ levelSlider.addEventListener('change', () => {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ min_sound_level: levelSlider.value / 100 }),
+  }).catch(() => {});
+});
+
+phraseSlider.addEventListener('input', () => { phraseValue.textContent = `${phraseSlider.value}s`; });
+phraseSlider.addEventListener('change', () => {
+  fetch('/config', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ stt_max_phrase_s: Number(phraseSlider.value) }),
   }).catch(() => {});
 });
 
@@ -1475,6 +1487,8 @@ function switchSettingsPage(page) {
   configFooter.style.display = (page === 'translation' || page === 'phrases') ? '' : 'none';
   document.getElementById('config-body').scrollTop = 0;
   if (page === 'voices') window.ttsPacks?.reload?.();
+  if (page === 'ocr') window.ocr?.reloadSettings?.();
+  if (page === 'lang') window.jadict?.reloadSettings?.();
 }
 
 configNav.addEventListener('click', (e) => {
@@ -1845,6 +1859,7 @@ function setToolbarCredit(credit, termsUrl) {
   $('tts-close').addEventListener('click', close);
   backdrop.addEventListener('click', close);
   $('tts-speak-btn').addEventListener('click', speak);
+  $('tts-stop-btn').addEventListener('click', () => stop());
   $('tts-open-voices').addEventListener('click', openVoicesSettings);
   $('tts-manage-voices').addEventListener('click', (e) => { e.preventDefault(); openVoicesSettings(); });
   $('tts-voice').addEventListener('change', () => {
@@ -1901,6 +1916,10 @@ function setToolbarCredit(credit, termsUrl) {
     } catch {  }
   }
   
+  async function stop() {
+    try { await fetch('/tts/stop', { method: 'POST' }); } catch {  }
+  }
+  
   async function refreshCredit() {
     let s;
     try { s = await (await fetch('/tts/status')).json(); } catch { return; }
@@ -1923,7 +1942,72 @@ function setToolbarCredit(credit, termsUrl) {
     }
     setToolbarCredit(credit, termsUrl);
   }
-  window.ttsApi = { prepare, speakLine, refreshCredit, reopen: refreshState };
+  window.ttsApi = { prepare, speakLine, stop, refreshCredit, reopen: refreshState };
+})();
+
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const panel = $('captions-panel');
+  const backdrop = $('captions-backdrop');
+  const toggle = $('cap-show-toggle');
+  const KEY = 'captionsOverlayOn';
+
+  async function setOverlay(on) {
+    try { await fetch('/captions/overlay/' + (on ? 'show' : 'hide'), { method: 'POST' }); }
+    catch (_) {  }
+  }
+
+  function open() { panel.classList.add('open'); backdrop.classList.add('open'); }
+  function close() { panel.classList.remove('open'); backdrop.classList.remove('open'); }
+
+  $('btn-captions').addEventListener('click', open);
+  $('captions-close').addEventListener('click', close);
+  backdrop.addEventListener('click', close);
+
+  toggle.addEventListener('change', () => {
+    localStorage.setItem(KEY, toggle.checked ? '1' : '0');
+    setOverlay(toggle.checked);
+  });
+
+  const hover = $('cap-hover-toggle');
+  const HKEY = 'captionsHover';
+  async function setHover(on) {
+    try {
+      await fetch('/captions/overlay/hover', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ on }),
+      });
+    } catch (_) {  }
+  }
+  hover.addEventListener('change', () => {
+    localStorage.setItem(HKEY, hover.checked ? '1' : '0');
+    setHover(hover.checked);
+  });
+
+  const blur = $('cap-blur-toggle');
+  const BKEY = 'captionsBlur';
+  async function setBlur(on) {
+    try {
+      await fetch('/captions/overlay/blur', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ on }),
+      });
+    } catch (_) {  }
+  }
+  blur.addEventListener('change', () => {
+    localStorage.setItem(BKEY, blur.checked ? '1' : '0');
+    setBlur(blur.checked);
+  });
+
+  const on = localStorage.getItem(KEY) === '1';
+  toggle.checked = on;
+  if (on) setOverlay(true);
+  const hoverOn = localStorage.getItem(HKEY) !== '0';   
+  hover.checked = hoverOn;
+  if (!hoverOn) setHover(false);
+  const blurOn = localStorage.getItem(BKEY) === '1';    
+  blur.checked = blurOn;
+  if (blurOn) setBlur(true);
 })();
 
 (function () {
@@ -2133,4 +2217,97 @@ function setToolbarCredit(credit, termsUrl) {
 document.getElementById('tts-credit-chip-copy')?.addEventListener('click', () => {
   navigator.clipboard?.writeText(document.getElementById('tts-credit-chip-text').textContent || '').catch(() => {});
 });
+
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const setSettingsStatus = (t) => { $('cfg-ocr-status').textContent = t || ''; };
+
+  async function reloadSettings() {
+    let st;
+    try { st = await (await fetch('/ocr/status')).json(); }
+    catch { setSettingsStatus('Backend not reachable.'); return; }
+    const installed = !!st.installed;
+    $('cfg-ocr-install').style.display = installed ? 'none' : '';
+    $('cfg-ocr-ready').style.display = installed ? '' : 'none';
+    setSettingsStatus(installed && st.running ? 'Engine ready.' : '');
+  }
+
+  $('cfg-ocr-install-btn').addEventListener('click', (e) => {
+    e.target.disabled = true;
+    const prog = $('cfg-ocr-progress');
+    fetch('/engines/install', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ engine: 'ocr' }) })
+      .then((r) => { if (!r.ok) return r.text().then((t) => { throw new Error(t); }); })
+      .then(() => {
+        const poll = setInterval(async () => {
+          const j = await (await fetch('/engines/install/status')).json();
+          prog.textContent = `${j.phase}${j.detail ? ' · ' + j.detail : ''}`;
+          if (j.done) {
+            clearInterval(poll);
+            e.target.disabled = false;
+            if (j.error) { prog.textContent = 'Install failed: ' + j.error; }
+            else { prog.textContent = ''; fetch('/ocr/start', { method: 'POST' }); reloadSettings(); }
+          }
+        }, 700);
+      })
+      .catch((err) => { prog.textContent = 'Install failed: ' + err.message; e.target.disabled = false; });
+  });
+
+  $('cfg-ocr-uninstall-btn').addEventListener('click', async () => {
+    if (!confirm('Uninstall OCR? Its engine and models (~700 MB) will be removed.')) return;
+    try {
+      await fetch('/ocr/stop', { method: 'POST' });
+      const r = await fetch('/engines/remove', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ engine: 'ocr' }) });
+      if (!r.ok) throw new Error(await r.text());
+      reloadSettings();
+    } catch (e) { setSettingsStatus('Uninstall failed: ' + e.message); }
+  });
+
+  window.ocr = { reloadSettings };
+})();
+
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const setStatus = (t) => { const el = $('cfg-lang-status'); if (el) el.textContent = t || ''; };
+
+  async function reloadSettings() {
+    let st;
+    try { st = await (await fetch('/lang/status')).json(); }
+    catch { setStatus('Backend not reachable.'); return; }
+    const installed = !!st.installed;
+    if ($('cfg-lang-install')) $('cfg-lang-install').style.display = installed ? 'none' : '';
+    if ($('cfg-lang-ready')) $('cfg-lang-ready').style.display = installed ? '' : 'none';
+    setStatus(installed && st.running ? 'Engine ready.' : '');
+  }
+  if (window.jadict) window.jadict.reloadSettings = reloadSettings;
+
+  $('cfg-lang-install-btn')?.addEventListener('click', (e) => {
+    e.target.disabled = true;
+    const prog = $('cfg-lang-progress');
+    fetch('/lang/download', { method: 'POST' })
+      .then((r) => { if (!r.ok) return r.text().then((t) => { throw new Error(t); }); })
+      .then(() => {
+        const poll = setInterval(async () => {
+          const j = await (await fetch('/engines/install/status')).json();
+          prog.textContent = j.phase + (j.detail ? ' · ' + j.detail : '');
+          if (j.done) {
+            clearInterval(poll);
+            e.target.disabled = false;
+            if (j.error) { prog.textContent = 'Download failed: ' + j.error; }
+            else { prog.textContent = ''; await window.jadict?.refresh?.(); reloadSettings(); }
+          }
+        }, 700);
+      })
+      .catch((err) => { prog.textContent = 'Download failed: ' + err.message; e.target.disabled = false; });
+  });
+
+  $('cfg-lang-uninstall-btn')?.addEventListener('click', async () => {
+    if (!confirm('Remove the Japanese dictionary data (~63 MB)?')) return;
+    try {
+      const r = await fetch('/lang/remove', { method: 'POST' });
+      if (!r.ok) throw new Error(await r.text());
+      await window.jadict?.refresh?.();
+      reloadSettings();
+    } catch (e) { setStatus('Remove failed: ' + e.message); }
+  });
+})();
 window.ttsApi?.refreshCredit?.();

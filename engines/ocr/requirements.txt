@@ -1,0 +1,7 @@
+fastapi==0.136.3
+uvicorn==0.48.0
+numpy==2.2.6
+paddleocr==3.7.0
+paddlepaddle==3.3.1
+onnxruntime-directml>=1.20
+mss==10.2.0

@@ -61,6 +61,39 @@ are **not redistributed** with this app.
 - **Windows voices** - the operating system's built-in speech voices, accessed via
   [winsdk](https://pypi.org/project/winsdk/) (MIT). Nothing is bundled.
 
+## Japanese dictionary
+
+The optional Japanese click-to-define feature segments text with kuromoji (in the
+UI) and looks words up in JMdict.
+
+- **[JMdict](https://www.edrdg.org/jmdict/j_jmdict.html)** - CC BY-SA 4.0
+  © [EDRDG](https://www.edrdg.org/), used under the
+  [EDRDG Licence](https://www.edrdg.org/edrdg/licence.html), via the
+  [jmdict-simplified](https://github.com/scriptin/jmdict-simplified) release
+  (conversion: MIT). The dictionary is downloaded on install and **not
+  redistributed** with this app.
+
+- **[kuromoji.js](https://github.com/takuyaa/kuromoji.js)** - Apache-2.0
+  © Takuya Asano / Atilika Inc. Japanese word segmentation, bundled in
+  `web/vendor/kuromoji/`, with the **mecab-ipadic** dictionary (© Nara Institute
+  of Science and Technology; ICOT Free Software terms). Full texts in
+  `web/vendor/kuromoji/LICENSE-2.0.txt` and `NOTICE.md`.
+
+## Screen OCR
+
+The optional Screen OCR engine (snip and read on-screen text) downloads its model
+weights on install; they are **not redistributed** with this app.
+
+- **[PP-OCRv6](https://huggingface.co/PaddlePaddle)** models via
+  **[PaddleOCR](https://github.com/PaddlePaddle/PaddleOCR)** / PaddlePaddle - Apache-2.0
+  © PaddlePaddle Authors. Text detection and recognition, run through ONNX Runtime.
+
+- **[ONNX Runtime](https://github.com/microsoft/onnxruntime)** - MIT
+  © Microsoft. Inference runtime (DirectML on a GPU, CPU otherwise).
+
+- **[mss](https://github.com/BoboTiG/python-mss)** - MIT
+  Virtual-desktop screen capture for the snip.
+
 ## Application
 
 - **[FastAPI](https://fastapi.tiangolo.com/)** - MIT

@@ -52,6 +52,18 @@ def shutdown():
         server._tts_mgr.stop()
     except Exception:
         pass
+    ov = sys.modules.get("overlay")
+    if ov is not None:
+        try:
+            ov.stop()
+        except Exception:
+            pass
+    cap = sys.modules.get("captions_overlay")
+    if cap is not None:
+        try:
+            cap.stop()
+        except Exception:
+            pass
 
 
 def _already_running() -> bool:
@@ -76,7 +88,7 @@ def main():
 
     start_backend_async()
 
-    from pytauri import Manager
+    from pytauri import Manager, RunEvent, WindowEvent
     from pytauri.image import Image
     from pytauri_wheel.lib import builder_factory, context_factory
 
@@ -92,7 +104,31 @@ def main():
         pass
 
     try:
-        exit_code = app.run_return()
+        import overlay
+        overlay.set_app_handle(app.handle())
+        overlay.start()
+    except Exception:
+        import traceback
+        traceback.print_exc()
+
+    try:
+        import captions_overlay
+        captions_overlay.set_app_handle(app.handle())
+        captions_overlay.start()
+    except Exception:
+        import traceback
+        traceback.print_exc()
+
+    def on_run_event(handle, event):
+        try:
+            if (isinstance(event, RunEvent.WindowEvent) and event.label == "main"
+                    and isinstance(event.event, WindowEvent.CloseRequested)):
+                handle.exit(0)
+        except Exception:
+            pass
+
+    try:
+        exit_code = app.run_return(on_run_event)
     finally:
         shutdown()
     sys.exit(exit_code)

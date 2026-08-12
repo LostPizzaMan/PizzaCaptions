@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Live Transcription</title>
-  <link rel="stylesheet" href="/styles.css?v=15" />
+  <link rel="stylesheet" href="/styles.css?v=39" />
 </head>
 <body>
 
@@ -71,6 +71,7 @@
     <button id="tts-credit-chip-copy" title="Copy credit">⧉</button>
   </span>
   <span id="mic-label"></span>
+  <button id="btn-captions" title="On-screen captions overlay" style="background:#1a1a1a;border:1px solid #333;border-radius:6px;color:#ccc;font-size:13px;font-weight:600;letter-spacing:0.05em;padding:5px 12px;cursor:pointer;">CC</button>
   <button id="btn-speak" title="Text-to-speech" style="display:none;background:#1a1a1a;border:1px solid #333;border-radius:6px;color:#ccc;font-size:13px;padding:5px 12px;cursor:pointer;">🔊 TTS</button>
   <button id="btn-config" title="Translation settings">⚙</button>
 </div>
@@ -173,6 +174,16 @@
       noise, or a TV in the room. Start capture to see the live level, then drag the
       marker just above where the bar sits while you are not speaking. All the way
       left turns the gate off.
+    </div>
+
+    <label class="config-label" style="margin-top:16px;">Split long speech <span style="color:#555;font-size:11px;">(applies on next start)</span><span id="phrase-value" style="float:right;color:#999;font-size:12px;font-family:Consolas,'Courier New',monospace;">20s</span></label>
+    <input type="range" id="phrase-slider" min="4" max="20" step="1" value="20" style="width:100%;cursor:pointer;" />
+    <div style="font-size:11px;color:#555;line-height:1.5;">
+      Talk longer than this without a clear pause and the transcription is split at
+      your next natural breath, instead of holding one long line, so captions,
+      translation, and TTS keep flowing. Lower is snappier for long talkers; higher
+      keeps whole sentences together (better for translation). Does not affect the
+      Whisper engine, which segments on its own.
     </div>
 
     <label class="config-label" style="margin-top:16px;">VRChat OSC</label>
@@ -282,6 +293,49 @@
     </label>
     </section>
 
+    <section class="settings-page" id="page-ocr">
+    <label class="config-label">OCR <span style="color:#555;font-size:11px;">(read on-screen text · optional · experimental)</span></label>
+    <p style="font-size:11px;color:#777;line-height:1.5;margin:0 0 8px;">
+      Press <b>Alt&#8202;+&#8202;S</b> anytime, even in a game, for a see-through overlay:
+      drag a box to copy or translate text, or click a Japanese word to define it.
+      Reads Chinese, English, Japanese, and 46 more (Latin-script) languages, on your machine.
+    </p>
+    <div id="cfg-ocr-install" style="display:none;margin-top:4px;">
+      <button id="cfg-ocr-install-btn" style="background:#685EBD;border:none;border-radius:6px;color:#fff;font-size:12px;padding:6px 12px;cursor:pointer;">Install OCR</button>
+      <span style="font-size:11px;color:#666;margin-left:8px;">~700 MB (one time)</span>
+      <div id="cfg-ocr-progress" style="font-size:12px;color:#888;margin-top:6px;font-family:Consolas,'Courier New',monospace;"></div>
+    </div>
+    <div id="cfg-ocr-ready" style="display:none;">
+      <div style="font-size:12px;color:#7ac07a;">Installed. Press <b>Alt&#8202;+&#8202;S</b> anywhere to read on-screen text.</div>
+      <button id="cfg-ocr-uninstall-btn" style="margin-top:12px;align-self:flex-start;background:#2a2a2a;border:1px solid #3a3a3a;border-radius:6px;color:#c66;font-size:11px;padding:4px 10px;cursor:pointer;">Uninstall</button>
+    </div>
+    <div id="cfg-ocr-status" style="font-size:11px;color:#555;margin-top:10px;"></div>
+    </section>
+
+    <section class="settings-page" id="page-lang">
+    <label class="config-label">Japanese Dictionary <span style="color:#555;font-size:11px;">(optional · experimental)</span></label>
+    <p style="font-size:11px;color:#777;line-height:1.5;margin:0 0 8px;">
+      Click any Japanese word in a caption or OCR result to define it; conjugations
+      resolve to the base form (食べられなかった &#8594; 食べる). Hold <b>Shift</b> and
+      hover to look up from exactly where you point, for when a word isn&rsquo;t split
+      where you expect.
+    </p>
+    <div id="cfg-lang-install" style="display:none;margin-top:4px;">
+      <button id="cfg-lang-install-btn" style="background:#685EBD;border:none;border-radius:6px;color:#fff;font-size:12px;padding:6px 12px;cursor:pointer;">Download dictionary</button>
+      <span style="font-size:11px;color:#666;margin-left:8px;">~63 MB (one time)</span>
+      <div id="cfg-lang-progress" style="font-size:12px;color:#888;margin-top:6px;font-family:Consolas,'Courier New',monospace;"></div>
+    </div>
+    <div id="cfg-lang-ready" style="display:none;">
+      <div style="font-size:12px;color:#7ac07a;">Installed. Click a Japanese word in captions or OCR results to define it, or Shift+hover to pick the start.</div>
+      <button id="cfg-lang-uninstall-btn" style="margin-top:12px;align-self:flex-start;background:#2a2a2a;border:1px solid #3a3a3a;border-radius:6px;color:#c66;font-size:11px;padding:4px 10px;cursor:pointer;">Uninstall</button>
+    </div>
+    <div id="cfg-lang-status" style="font-size:11px;color:#555;margin-top:10px;"></div>
+    <p style="font-size:10px;color:#555;line-height:1.5;margin-top:14px;">
+      Word segmentation uses <b>kuromoji</b> (Apache-2.0) in your browser; definitions
+      are from <b>JMdict</b> (CC BY-SA 4.0), served by a local process. See the About page.
+    </p>
+    </section>
+
     <section class="settings-page" id="page-about">
     <div class="credits-title">Credits &amp; Licenses <span id="cfg-version"></span></div>
     <div style="font-size:11px;color:#666;line-height:1.5;">Built on the following open-source projects and models.</div>
@@ -330,6 +384,29 @@
         <a href="https://pypi.org/project/winsdk/" target="_blank">winsdk</a> (MIT); nothing bundled.</span></li>
     </ul>
 
+    <div class="credits-head">Screen OCR</div>
+    <ul class="credits">
+      <li><a href="https://huggingface.co/PaddlePaddle" target="_blank">PP-OCRv6</a> models via
+        <a href="https://github.com/PaddlePaddle/PaddleOCR" target="_blank">PaddleOCR</a> &middot; <span class="lic">Apache-2.0</span><br>
+        <span class="desc">&copy; PaddlePaddle Authors. Text detection and recognition, run through ONNX Runtime.
+        Model weights download on install (not redistributed).</span></li>
+      <li><a href="https://github.com/microsoft/onnxruntime" target="_blank">ONNX Runtime</a> &middot; <span class="lic">MIT</span><br>
+        <span class="desc">&copy; Microsoft. Inference runtime (DirectML on a GPU, CPU otherwise).</span></li>
+      <li><a href="https://github.com/BoboTiG/python-mss" target="_blank">mss</a> &middot; <span class="lic">MIT</span> <span class="desc">(screen capture for the snip)</span></li>
+    </ul>
+
+    <div class="credits-head">Japanese dictionary</div>
+    <ul class="credits">
+      <li><a href="https://www.edrdg.org/jmdict/j_jmdict.html" target="_blank">JMdict</a> &middot; <span class="lic">CC BY-SA 4.0</span><br>
+        <span class="desc">&copy; <a href="https://www.edrdg.org/" target="_blank">EDRDG</a>, used under the
+        <a href="https://www.edrdg.org/edrdg/licence.html" target="_blank">EDRDG Licence</a> via
+        <a href="https://github.com/scriptin/jmdict-simplified" target="_blank">jmdict-simplified</a> (conversion: MIT).
+        Downloaded on install, not redistributed with this app.</span></li>
+      <li><a href="https://github.com/takuyaa/kuromoji.js" target="_blank">kuromoji.js</a> &middot; <span class="lic">Apache-2.0</span><br>
+        <span class="desc">&copy; Takuya Asano / Atilika Inc. Japanese word segmentation (in the browser), bundled with the
+        <b>mecab-ipadic</b> dictionary (&copy; Nara Institute of Science and Technology; ICOT Free Software terms).</span></li>
+    </ul>
+
     <div class="credits-head">Application</div>
     <ul class="credits">
       <li><a href="https://fastapi.tiangolo.com/" target="_blank">FastAPI</a> &middot; <span class="lic">MIT</span></li>
@@ -360,6 +437,8 @@
     <button data-page="translation">Translation</button>
     <button data-page="phrases">Phrases</button>
     <button data-page="voices">Voices</button>
+    <button data-page="ocr">OCR</button>
+    <button data-page="lang">Dictionary</button>
     <button data-page="about">About</button>
   </nav>
   </div>
@@ -471,10 +550,38 @@
       </select>
       <div class="tts-actions">
         <button id="tts-speak-btn" class="tts-primary">Play</button>
+        <button id="tts-stop-btn" class="tts-secondary" title="Stop TTS playback now">Stop</button>
         <a id="tts-manage-voices" class="tts-link" href="#">Manage voices</a>
         <span id="tts-status" class="tts-progress"></span>
       </div>
     </div>
+  </div>
+</div>
+
+
+<div id="captions-backdrop"></div>
+<div id="captions-panel">
+  <div id="captions-header">
+    <span>On-screen captions</span>
+    <button id="captions-close" title="Close">✕</button>
+  </div>
+  <div id="captions-body">
+    <p class="tts-hint" style="margin-top:14px;">Show this app's live captions in a floating bar over your game. It stays on top and lets your clicks pass through to the game.</p>
+
+    <label class="tts-label">Overlay</label>
+    <label class="cap-toggle">
+      <input type="checkbox" id="cap-show-toggle">
+      <span>Show captions overlay</span>
+    </label>
+    <label class="cap-toggle">
+      <input type="checkbox" id="cap-hover-toggle" checked>
+      <span>Hover a word to define it (Japanese)</span>
+    </label>
+    <label class="cap-toggle">
+      <input type="checkbox" id="cap-blur-toggle">
+      <span>Blur the translation until you hover it</span>
+    </label>
+    <p class="tts-hint" style="margin-bottom:0;">The bar is a click-through overlay: hover a word to define it while your clicks pass through to the game. Press <b style="color:#b3aaff;">Alt+C</b> to unlock it (drag to move, click words to define), then <b style="color:#b3aaff;">Alt+C</b>, <b style="color:#b3aaff;">Esc</b>, or click off it to lock again.</p>
   </div>
 </div>
 
@@ -497,6 +604,8 @@
   </div>
 </div>
 
-<script src="/app.js?v=13"></script>
+<script src="/vendor/kuromoji/kuromoji.js"></script>
+<script src="/ocr-interact.js?v=46"></script>
+<script src="/app.js?v=41"></script>
 </body>
 </html>

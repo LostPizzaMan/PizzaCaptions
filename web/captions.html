@@ -1,0 +1,265 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Captions</title>
+<style>
+  html, body {
+    margin: 0; height: 100%; background: transparent; overflow: hidden;
+    font-family: "Segoe UI", 'Meiryo', system-ui, sans-serif;
+    -webkit-user-select: none; user-select: none; cursor: default;
+  }
+  
+  #bar {
+    position: fixed; left: 50%; bottom: 6vh; transform: translateX(-50%);
+    max-width: 80vw; min-width: 18vw; box-sizing: border-box;
+    display: flex; flex-direction: column; gap: 6px;
+    padding: 14px 22px; border-radius: 14px;
+    background: rgba(8, 10, 14, 0.88);
+    box-shadow: 0 6px 26px rgba(0, 0, 0, 0.5);
+    color: #fff; text-align: center;
+  }
+  #bar.empty { display: none; }
+  #history { display: none; }   
+  .line { display: flex; flex-direction: column; gap: 1px; }
+  .orig, .tr {
+    line-height: 1.35; word-break: break-word;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.95), 0 0 5px rgba(0, 0, 0, 0.75);
+  }
+  #active .orig { font-size: 30px; font-weight: 600; color: #fff; }
+  #active .tr   { font-size: 22px; color: #cfe8ff; }
+
+  body.blur-tr .tr { filter: blur(7px); transition: filter 0.12s ease; }
+  body.blur-tr .tr:hover,
+  body.blur-tr.tr-reveal .tr { filter: none; }
+
+  body.interactive #bar { outline: 1px dashed rgba(150,150,170,0.7); cursor: move; }
+  body.interactive .jarun { cursor: pointer; }
+  
+  body.interactive #bar.empty { display: flex; }
+  .orig.placeholder { color: rgba(255,255,255,0.42); font-weight: 400; font-size: 20px; }
+
+  .jarun { cursor: pointer; border-radius: 3px; transition: background 0.08s; }
+  .jarun:hover { background: rgba(104,94,189,0.42); }
+  .jaword-active { background: rgba(104,94,189,0.42); border-radius: 3px; }
+  ::highlight(jascan) { background: rgba(104,94,189,0.42); }
+  .jadict-head ruby { ruby-align: center; }
+  .jadict-head rt { font-size: 0.5em; line-height: 1; color: #9a90e0; font-weight: 400; user-select: none; }
+  .jadict-pop { position: fixed; z-index: 200; max-width: 340px; max-height: 60vh; overflow-y: auto;
+    background: #1a1a1a; border: 1px solid #3a3a3a; border-radius: 8px; box-shadow: 0 8px 28px rgba(0,0,0,0.55);
+    padding: 12px 14px; font-size: 13px; line-height: 1.5; color: #ddd; cursor: default; text-align: left; }
+  .jadict-pop[hidden] { display: none; }
+  .jadict-entry + .jadict-entry { margin-top: 10px; padding-top: 10px; border-top: 1px solid #2a2a2a; }
+  .jadict-head { font-size: 17px; font-weight: 600; color: #fff; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+  .jadict-reading { font-size: 13px; font-weight: 400; color: #9a90e0; }
+  .jadict-common { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: #fff; background: #685EBD; border-radius: 4px; padding: 1px 5px; }
+  .jadict-reasons { margin-top: 3px; font-size: 11px; color: #888; font-family: Consolas, monospace; }
+  .jadict-senses { margin: 7px 0 0; padding-left: 18px; }
+  .jadict-senses li { margin-bottom: 3px; }
+  .jadict-pos { color: #7f8; font-size: 11px; font-family: Consolas, monospace; }
+  .jadict-loading, .jadict-empty { margin-top: 6px; color: #888; font-size: 12px; }
+</style>
+</head>
+<body>
+  <div id="bar" class="empty">
+    <div id="history"></div>
+    <div id="active"></div>
+  </div>
+  <script src="/vendor/kuromoji/kuromoji.js"></script>
+  <script src="/ocr-interact.js?v=46"></script>
+<script>
+(function () {
+  const bar = document.getElementById('bar');
+  const activeEl = document.getElementById('active');
+  const KEEP = 20;          
+
+  let lineCount = 0;
+  let history = [];         
+  let activeText = '';
+  let interactive = false;  
+  let hoverDefine = true;   
+  let blurTr = false;       
+  let ws = null;
+
+  function currentLine() {
+    if (activeText) return { text: activeText, tr: '' };
+    if (history.length) return { text: history[history.length - 1].text, tr: history[history.length - 1].tr };
+    return { text: '', tr: '' };
+  }
+
+  function lineEl(text, tr) {
+    const wrap = document.createElement('div');
+    wrap.className = 'line';
+    const o = document.createElement('div');
+    o.className = 'orig';
+    o.textContent = text;
+    
+    if (window.jadict && window.jadict.enabled) window.jadict.renderJaText(o, text);
+    wrap.appendChild(o);
+    if (tr) {
+      const t = document.createElement('div');
+      t.className = 'tr';
+      t.textContent = tr;
+      wrap.appendChild(t);
+    }
+    return wrap;
+  }
+
+  function render() {
+    activeEl.textContent = '';
+    const { text, tr } = currentLine();
+    if (text) {
+      activeEl.appendChild(lineEl(text, tr));
+    } else if (interactive) {
+      
+      const p = document.createElement('div');
+      p.className = 'line';
+      p.innerHTML = '<div class="orig placeholder">Captions will appear here</div>';
+      activeEl.appendChild(p);
+    }
+    bar.classList.toggle('empty', !text);
+  }
+
+  function commit() {
+    const t = activeText.trim();
+    if (t && (!history.length || history[history.length - 1].text !== t)) {
+      history.push({ text: t, tr: '' });
+      if (history.length > KEEP) history = history.slice(-KEEP);
+    }
+    activeText = '';
+  }
+
+  function onFrame(data) {
+    if (!Array.isArray(data.lines)) return;
+    if (data.stream && data.stream !== 'listener') return;   
+    const visible = data.lines.filter(l => l.speaker !== -2 && (l.text || '').trim());
+    const latest = visible[visible.length - 1];
+    if (!latest) return;
+    const count = (data.line_count !== undefined) ? data.line_count : visible.length;
+    if (count !== lineCount) {
+      if (count > lineCount) commit();
+      lineCount = count;
+    }
+    activeText = (latest.text || '').trim();
+    if (data.final) commit();
+    render();   
+  }
+
+  function onTranslation(data) {
+    const src = (data.source || '').trim();
+    const tr = (data.text || '').trim();
+    if (!src || !tr) return;
+    for (let i = history.length - 1; i >= 0; i--) {
+      if (history[i].text === src && !history[i].tr) {
+        history[i].tr = tr;
+        render();
+        return;
+      }
+    }
+  }
+
+  function connect() {
+    ws = new WebSocket('ws://' + location.host + '/captions');
+    ws.addEventListener('message', function (e) {
+      let data;
+      try { data = JSON.parse(e.data); } catch (_) { return; }
+      if (data && typeof data === 'object') {
+        if (data.type === 'translation') { onTranslation(data); return; }
+        if (data.type) return;                 
+        onFrame(data);
+      }
+    });
+    ws.addEventListener('close', function () { setTimeout(connect, 1000); });
+    ws.addEventListener('error', function () { try { ws.close(); } catch (_) {} });
+  }
+
+  let pos = null;
+  try { pos = JSON.parse(localStorage.getItem('captionsBarPos') || 'null'); } catch (_) {}
+  function applyPos() {
+    if (pos && typeof pos.x === 'number') {
+      
+      bar.style.left = pos.x + 'px'; bar.style.top = pos.y + 'px';
+      bar.style.bottom = 'auto'; bar.style.transform = 'translate(-50%, -50%)';
+    }
+  }
+  
+  bar.addEventListener('pointerdown', function (e) {
+    if (e.target.closest('.jarun')) return;
+    e.preventDefault();
+    const rect = bar.getBoundingClientRect();
+    const ox = e.clientX - (rect.left + rect.width / 2);
+    const oy = e.clientY - (rect.top + rect.height / 2);
+    function move(ev) {
+      const halfW = bar.offsetWidth / 2, halfH = bar.offsetHeight / 2;
+      const x = Math.max(halfW, Math.min(window.innerWidth - halfW, ev.clientX - ox));
+      const y = Math.max(halfH, Math.min(window.innerHeight - halfH, ev.clientY - oy));
+      bar.style.left = x + 'px'; bar.style.top = y + 'px';
+      bar.style.bottom = 'auto'; bar.style.transform = 'translate(-50%, -50%)';
+      pos = { x, y };
+    }
+    function up() {
+      document.removeEventListener('pointermove', move);
+      document.removeEventListener('pointerup', up);
+      if (pos) localStorage.setItem('captionsBarPos', JSON.stringify(pos));
+    }
+    document.addEventListener('pointermove', move);
+    document.addEventListener('pointerup', up);
+  });
+
+  window.__captionsInteract = function (on) {
+    interactive = !!on;
+    document.body.classList.toggle('interactive', interactive);
+    render();
+  };
+
+  window.__captionsHover = function (px, py) {
+    if (interactive) return;
+    const dpr = window.devicePixelRatio || 1;
+    const x = px / dpr, y = py / dpr;
+    if (blurTr) {
+      const el = document.elementFromPoint(x, y);
+      document.body.classList.toggle('tr-reveal', !!(el && el.closest && el.closest('.tr')));
+    }
+    if (hoverDefine && window.jadict && window.jadict.hoverAt) window.jadict.hoverAt(x, y);
+  };
+
+  window.__captionsHoverDefine = function (on) { hoverDefine = !!on; };
+
+  window.__captionsBlur = function (on) {
+    blurTr = !!on;
+    document.body.classList.toggle('blur-tr', blurTr);
+    if (!blurTr) document.body.classList.remove('tr-reveal');
+  };
+
+  function leaveInteract() {
+    fetch('/captions/overlay/interact', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ on: false }),
+    }).catch(() => {});
+  }
+
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && interactive) leaveInteract();
+  });
+
+  document.addEventListener('mousedown', function (e) {
+    if (!interactive) return;
+    if (e.target.closest('#bar, .jadict-pop')) return;
+    leaveInteract();
+  });
+
+  document.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+
+  window.__captionsReset = function () {
+    
+    history = []; activeText = ''; lineCount = 0;
+    render();
+  };
+
+  applyPos();
+  connect();
+  render();
+})();
+</script>
+</body>
+</html>
