@@ -38,7 +38,7 @@ from hallucinations import DEFAULT_BLOCKED_PHRASES
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
-APP_VERSION = "0.4.0"
+APP_VERSION = "0.4.1"
 
 SAMPLE_RATE = 16000
 CHUNK = 4096

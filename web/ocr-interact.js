@@ -554,7 +554,6 @@
       hidePop();
     });
     document.addEventListener('keydown', (e) => { if (e.key === 'Escape') hidePop(); });
-    window.addEventListener('scroll', hidePop, true);
     return pop;
   }
 
@@ -604,29 +603,31 @@
     place(anchor);
   }
 
+  function renderEntry(res, idx, grammar) {
+    
+    const furi = res.reading ? furiganaHtml(res.headword, res.reading) : null;
+    const head = '<span class="jadict-word">' + (furi || esc(res.headword)) + '</span>';
+    const reading = (!furi && res.reading && res.reading !== res.headword)
+      ? '<span class="jadict-reading">' + esc(res.reading) + '</span>' : '';
+    const common = res.common ? '<span class="jadict-common">common</span>' : '';
+    
+    const reasons = (idx === 0 && grammar)
+      ? '<div class="jadict-reasons">' + esc(grammar) + '</div>' : '';
+    const senses = (res.senses || []).slice(0, 5).map((sn) => {
+      const pos = (sn.pos && sn.pos.length) ? '<span class="jadict-pos">' + esc(sn.pos.join(', ')) + '</span> ' : '';
+      return '<li>' + pos + esc((sn.glosses || []).join('; ')) + '</li>';
+    }).join('');
+    return '<div class="jadict-entry"><div class="jadict-head">' + head + reading + common + '</div>'
+      + reasons + '<ol class="jadict-senses">' + senses + '</ol></div>';
+  }
+
   function renderResults(j, grammar) {
     const word = j.word || '';
     const results = j.results || [];
     if (!results.length) {
       return '<div class="jadict-head">' + esc(word) + '</div><div class="jadict-empty">No dictionary match</div>';
     }
-    return results.slice(0, 3).map((res, idx) => {
-      
-      const furi = res.reading ? furiganaHtml(res.headword, res.reading) : null;
-      const head = '<span class="jadict-word">' + (furi || esc(res.headword)) + '</span>';
-      const reading = (!furi && res.reading && res.reading !== res.headword)
-        ? '<span class="jadict-reading">' + esc(res.reading) + '</span>' : '';
-      const common = res.common ? '<span class="jadict-common">common</span>' : '';
-      
-      const reasons = (idx === 0 && grammar)
-        ? '<div class="jadict-reasons">' + esc(grammar) + '</div>' : '';
-      const senses = (res.senses || []).slice(0, 5).map((sn) => {
-        const pos = (sn.pos && sn.pos.length) ? '<span class="jadict-pos">' + esc(sn.pos.join(', ')) + '</span> ' : '';
-        return '<li>' + pos + esc((sn.glosses || []).join('; ')) + '</li>';
-      }).join('');
-      return '<div class="jadict-entry"><div class="jadict-head">' + head + reading + common + '</div>'
-        + reasons + '<ol class="jadict-senses">' + senses + '</ol></div>';
-    }).join('');
+    return renderEntry(results[0], 0, grammar);
   }
 
   async function init() {
