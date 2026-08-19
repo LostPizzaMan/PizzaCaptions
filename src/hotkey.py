@@ -19,10 +19,7 @@ VK_Z = 0x5A
 _user32 = ctypes.windll.user32
 _kernel32 = ctypes.windll.kernel32
 
-
 class GlobalHotkey:
-
-
     def __init__(self, modifiers: int, vk: int, callback):
         self._mod = modifiers
         self._vk = vk

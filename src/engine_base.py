@@ -5,6 +5,7 @@ import re
 import shutil
 import socket
 import subprocess
+import sys
 import threading
 import time
 from collections import deque
@@ -19,22 +20,17 @@ logger = logging.getLogger(__name__)
 BASE_DIR = Path(__file__).resolve().parent.parent
 ENGINES_DIR = BASE_DIR / "engines"
 
-
 ENGINE_STARTUP_TIMEOUT = 1800
-
 
 def _free_port() -> int:
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
         return s.getsockname()[1]
 
-
 _DL_SIZE_RE = re.compile(r"(\d+(?:\.\d+)?\s*[KMGT]i?B?\s*/\s*\d+(?:\.\d+)?\s*[KMGT]i?B?)", re.I)
 _DL_PCT_RE = re.compile(r"(\d{1,3})\s*%")
 
-
 def _download_detail(line: str) -> str | None:
-
     low = line.lower()
     if not ("%|" in line or "b/s" in low or "download" in low or "fetching" in low):
         return None
@@ -48,9 +44,7 @@ def _download_detail(line: str) -> str | None:
         return size.group(1).replace(" ", "")
     return "starting download..."
 
-
 class EngineManager:
-
     def __init__(self, engines_dir: Path):
         self.engines_dir = engines_dir
         self.manifests: dict[str, dict] = {}
@@ -66,7 +60,6 @@ class EngineManager:
         self.recent_output: deque[str] = deque(maxlen=25)
 
     def refresh(self):
-
         manifests: dict[str, dict] = {}
         for base, source in ((self.engines_dir, "dev"), (engine_install.PACKS_DIR, "installed")):
             if not base.exists():
@@ -83,6 +76,10 @@ class EngineManager:
                         continue
                     if manifests.get(m["id"], {}).get("needs_vc_runtime"):
                         m.setdefault("needs_vc_runtime", True)
+                    for field in ("name", "description", "languages"):
+                        app_val = manifests.get(m["id"], {}).get(field)
+                        if app_val:
+                            m[field] = app_val
                     manifests[m["id"]] = m
                 except Exception as e:
                     logger.warning("Skipping bad engine manifest %s: %s", mf, e)
@@ -107,7 +104,6 @@ class EngineManager:
             self._stop_locked()
 
     def restart(self) -> int | None:
-
         with self.lock:
             if self.engine_id is None:
                 return None
@@ -120,14 +116,32 @@ class EngineManager:
         if self.proc is not None:
             if self.proc.poll() is None:
                 logger.info("Stopping engine %s (pid %d)", self.engine_id, self.proc.pid)
-                self.proc.terminate()
-                try:
-                    self.proc.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    self.proc.kill()
+                self._terminate_tree(self.proc)
             self.proc = None
         self.port = self.engine_id = self.language = self.model = None
         self.startup_phase = self.startup_detail = ""
+
+    @staticmethod
+    def _terminate_tree(proc):
+        if sys.platform == "win32":
+            try:
+                subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                               creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                               timeout=10)
+            except Exception as e:
+                logger.warning("taskkill failed for pid %d (%s); using kill()", proc.pid, e)
+                proc.kill()
+            try:
+                proc.wait(timeout=5)
+            except Exception:
+                pass
+        else:
+            proc.terminate()
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
 
     def _spawn_locked(self, engine_id: str, language: str, model: str):
         self.startup_phase, self.startup_detail = "loading", ""
@@ -136,11 +150,12 @@ class EngineManager:
             raise ValueError(f"Unknown engine: {engine_id}")
         edir: Path = manifest["_dir"]
         if manifest["_source"] == "installed":
-            src = self.engines_dir / engine_id / "engine_server.py"
-            dst = edir / "engine_server.py"
-            if src.exists() and (not dst.exists() or src.stat().st_mtime > dst.stat().st_mtime):
-                shutil.copy2(src, dst)
-                logger.info("Updated %s pack code from app copy", engine_id)
+            app_dir = self.engines_dir / engine_id
+            for src in app_dir.glob("*.py"):
+                dst = edir / src.name
+                if not dst.exists() or src.stat().st_mtime > dst.stat().st_mtime:
+                    shutil.copy2(src, dst)
+                    logger.info("Updated %s pack code (%s) from app copy", engine_id, src.name)
         python = (edir / manifest["python"]).resolve()
         if not python.exists():
             raise RuntimeError(f"Engine {engine_id}: interpreter not found at {python}")
@@ -188,7 +203,6 @@ class EngineManager:
         logger.info("Engine %s ready on port %d", engine_id, port)
 
     def _startup_failure(self, engine_id: str, code: int | None) -> str:
-
         tail = list(self.recent_output)
         blob, last = "\n".join(tail), (tail[-1] if tail else "")
         if "ModuleNotFoundError" in blob:

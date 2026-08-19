@@ -18,9 +18,7 @@ sys.path.insert(0, str(REPO_DIR / "src"))
 
 UI_PORT = 3011
 
-
 def start_backend_async():
-
     def run():
         try:
             import uvicorn
@@ -33,9 +31,7 @@ def start_backend_async():
 
     threading.Thread(target=run, daemon=True, name="backend").start()
 
-
 def shutdown():
-
     import sys
     server = sys.modules.get("server")
     if server is None:
@@ -65,14 +61,12 @@ def shutdown():
         except Exception:
             pass
 
-
 def _already_running() -> bool:
     try:
         with urllib_request.urlopen(f"http://127.0.0.1:{UI_PORT}/engines", timeout=1) as r:
             return r.status == 200
     except Exception:
         return False
-
 
 def main():
     if sys.platform == "win32":
@@ -83,7 +77,7 @@ def main():
         if sys.platform == "win32":
             import ctypes
             ctypes.windll.user32.MessageBoxW(
-                None, "Live Transcription is already running.", "Live Transcription", 0x40)
+                None, "Pizza Captions is already running.", "Pizza Captions", 0x40)
         return
 
     start_backend_async()
@@ -132,7 +126,6 @@ def main():
     finally:
         shutdown()
     sys.exit(exit_code)
-
 
 if __name__ == "__main__":
     main()

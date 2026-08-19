@@ -17,31 +17,31 @@ _shown = False
 _interactive = False
 _hover_enabled = True
 _blur_translation = False
+_pos_color = False
+_reading = "off"
 _origin = (0, 0)
 _hk = None
 _poll_thread = None
 _poll_stop = threading.Event()
 _lock = threading.Lock()
 
-
 class _POINT(ctypes.Structure):
     _fields_ = [("x", ctypes.c_long), ("y", ctypes.c_long)]
-
 
 def _cursor_pos():
     p = _POINT()
     ctypes.windll.user32.GetCursorPos(ctypes.byref(p))
     return p.x, p.y
 
-
 def set_app_handle(handle) -> None:
     global _app_handle
     _app_handle = handle
 
-
 def available() -> bool:
     return _app_handle is not None
 
+def is_shown() -> bool:
+    return _shown
 
 def _build_or_get_window():
     global _win
@@ -59,13 +59,12 @@ def _build_or_get_window():
         skip_taskbar=True, shadow=False, resizable=False,
         maximizable=False, minimizable=False, closable=False,
         focused=False, visible=False, title="captions",
+        focusable=False, accept_first_mouse=True,
     )
     logger.info("captions window built")
     return _win
 
-
 def _do_show() -> None:
-
     global _shown, _interactive, _origin
     try:
         from pytauri import Position, Size
@@ -89,14 +88,17 @@ def _do_show() -> None:
                 "window.__captionsReset && window.__captionsReset();"
                 "window.__captionsInteract && window.__captionsInteract(false);"
                 "window.__captionsHoverDefine && window.__captionsHoverDefine(%s);"
-                "window.__captionsBlur && window.__captionsBlur(%s)"
+                "window.__captionsBlur && window.__captionsBlur(%s);"
+                "window.__captionsPosColor && window.__captionsPosColor(%s);"
+                "window.__captionsReading && window.__captionsReading('%s')"
                 % (("true" if _hover_enabled else "false"),
-                   ("true" if _blur_translation else "false")))
+                   ("true" if _blur_translation else "false"),
+                   ("true" if _pos_color else "false"),
+                   _reading))
         except Exception:
             pass
     except Exception as e:
         logger.error("captions show failed: %s", e)
-
 
 def _do_hide() -> None:
     global _shown, _interactive
@@ -108,9 +110,7 @@ def _do_hide() -> None:
     _shown = False
     _interactive = False
 
-
 def _do_set_interactive(on: bool) -> None:
-
     global _interactive
     if not _shown or _win is None:
         return
@@ -118,25 +118,20 @@ def _do_set_interactive(on: bool) -> None:
         _interactive = bool(on)
         _win.set_ignore_cursor_events(not _interactive)
         if _interactive:
-            _win.set_focus()
             _win.eval("window.jadict && window.jadict.hoverAt(-1,-1)")
         _win.eval("window.__captionsInteract && window.__captionsInteract(%s)"
                   % ("true" if _interactive else "false"))
     except Exception as e:
         logger.error("captions interact toggle failed: %s", e)
 
-
 def _do_hover(rx: int, ry: int) -> None:
-
     try:
         if _win is not None:
             _win.eval("window.__captionsHover && window.__captionsHover(%d,%d)" % (rx, ry))
     except Exception:
         pass
 
-
 def _poll_loop() -> None:
-
     last = None
     while not _poll_stop.is_set():
         try:
@@ -153,29 +148,24 @@ def _poll_loop() -> None:
             pass
         _poll_stop.wait(0.04)
 
-
 def show() -> None:
     if _app_handle is None:
         logger.info("captions overlay unavailable (no app handle; browser dev?)")
         return
     _app_handle.run_on_main_thread(_do_show)
 
-
 def hide() -> None:
     if _app_handle is None:
         return
     _app_handle.run_on_main_thread(_do_hide)
-
 
 def set_interactive(on: bool) -> None:
     if _app_handle is None or not _shown:
         return
     _app_handle.run_on_main_thread(lambda: _do_set_interactive(on))
 
-
 def toggle_interactive() -> None:
     set_interactive(not _interactive)
-
 
 def _eval_js(js: str) -> None:
     if _app_handle is None:
@@ -188,7 +178,6 @@ def _eval_js(js: str) -> None:
             pass
     _app_handle.run_on_main_thread(run)
 
-
 def set_hover(on: bool) -> None:
     global _hover_enabled
     _hover_enabled = bool(on)
@@ -197,20 +186,45 @@ def set_hover(on: bool) -> None:
     if not _hover_enabled:
         _eval_js("window.jadict && window.jadict.hoverAt(-1,-1)")
 
-
 def set_blur(on: bool) -> None:
     global _blur_translation
     _blur_translation = bool(on)
     _eval_js("window.__captionsBlur && window.__captionsBlur(%s)"
              % ("true" if _blur_translation else "false"))
 
+def set_pos_color(on: bool) -> None:
+    global _pos_color
+    _pos_color = bool(on)
+    _eval_js("window.__captionsPosColor && window.__captionsPosColor(%s)"
+             % ("true" if _pos_color else "false"))
+
+def clear() -> None:
+    if not _shown:
+        return
+    _eval_js("window.__captionsReset && window.__captionsReset()")
+
+def set_reading(mode: str) -> None:
+    global _reading
+    _reading = mode if mode in ("furigana", "romaji") else "off"
+    _eval_js("window.__captionsReading && window.__captionsReading('%s')" % _reading)
+
+def load_prefs(*, blur=None, pos_color=None, reading=None) -> None:
+    global _blur_translation, _pos_color, _reading
+    if isinstance(blur, bool):
+        _blur_translation = blur
+    if isinstance(pos_color, bool):
+        _pos_color = pos_color
+    if isinstance(reading, str):
+        _reading = reading if reading in ("furigana", "romaji") else "off"
+
+def get_prefs() -> dict:
+    return {"pos_color": _pos_color, "hover": _hover_enabled, "blur": _blur_translation,
+            "reading": _reading, "shown": _shown}
 
 def _on_hotkey() -> None:
     toggle_interactive()
 
-
 def start() -> None:
-
     global _hk, _poll_thread
     with _lock:
         if _app_handle is None:
@@ -226,7 +240,6 @@ def start() -> None:
             _poll_stop.clear()
             _poll_thread = threading.Thread(target=_poll_loop, daemon=True, name="captions-hover")
             _poll_thread.start()
-
 
 def stop() -> None:
     global _hk, _poll_thread

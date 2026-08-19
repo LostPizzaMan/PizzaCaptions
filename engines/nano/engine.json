@@ -1,12 +1,19 @@
 {
   "id": "nano",
   "kind": "asr",
-  "name": "Fun-ASR-Nano (accurate, CPU, no GPU)",
+  "name": "Fun-ASR-Nano (CPU, LLM-based)",
+  "description": "Alibaba Fun-ASR-Nano (2025), a 0.6B recognizer for Japanese, English, and Chinese.",
   "protocol": 1,
   "experimental": true,
   "entry": "engine_server.py",
   "python": "python/python.exe",
-  "languages": ["en", "ja", "zh"],
-  "models": ["default"],
+  "languages": [
+    "en",
+    "ja",
+    "zh"
+  ],
+  "models": [
+    "default"
+  ],
   "default_model": "default"
 }

@@ -11,12 +11,8 @@ from engine_base import ENGINES_DIR, EngineManager
 
 logger = logging.getLogger(__name__)
 
-
 class OcrManager(EngineManager):
-
-
     def recognize(self, image: bytes) -> list[dict]:
-
         with self.lock:
             port = self.port
         if port is None:
@@ -28,7 +24,6 @@ class OcrManager(EngineManager):
             return json.loads(r.read()).get("lines", [])
 
     def capture(self) -> dict:
-
         with self.lock:
             port = self.port
         if port is None:
@@ -36,32 +31,27 @@ class OcrManager(EngineManager):
         with urllib_request.urlopen(f"http://127.0.0.1:{port}/capture", timeout=30) as r:
             return json.loads(r.read())
 
-
 _ocr_mgr = OcrManager(ENGINES_DIR)
-
 
 def on_shutdown():
     _ocr_mgr.stop()
-
 
 def on_engine_removed(engine_id):
     if engine_id == "ocr":
         _ocr_mgr.stop()
 
-
 router = APIRouter()
-
-
 
 def _ocr_manifest() -> dict | None:
     _ocr_mgr.refresh()
     return _ocr_mgr.manifests.get("ocr")
 
-
 def _ocr_params(m: dict) -> tuple[str, str, str]:
-
     return m["id"], (m.get("languages") or ["multi"])[0], m.get("default_model", "medium")
 
+def is_installed() -> bool:
+    m = _ocr_manifest()
+    return bool(m and m.get("_available"))
 
 @router.get("/ocr/status")
 def ocr_status():
@@ -75,10 +65,8 @@ def ocr_status():
         "detail": _ocr_mgr.startup_detail,
     }
 
-
 @router.post("/ocr/start")
 def ocr_start():
-
     m = _ocr_manifest()
     if not (m and m.get("_available")):
         raise HTTPException(status_code=409, detail="OCR engine not installed")
@@ -95,16 +83,13 @@ def ocr_start():
     threading.Thread(target=_go, daemon=True, name="ocr-start").start()
     return {"ok": True, "running": False}
 
-
 @router.post("/ocr/stop")
 def ocr_stop():
     _ocr_mgr.stop()
     return {"ok": True}
 
-
 @router.get("/ocr/capture")
 async def ocr_capture():
-
     m = _ocr_manifest()
     if not (m and m.get("_available")):
         raise HTTPException(status_code=409, detail="OCR engine not installed")
@@ -120,10 +105,8 @@ async def ocr_capture():
         logger.error("OCR capture failed: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
 
-
 @router.post("/ocr/recognize")
 async def ocr_recognize(request: Request):
-
     m = _ocr_manifest()
     if not (m and m.get("_available")):
         raise HTTPException(status_code=409, detail="OCR engine not installed")

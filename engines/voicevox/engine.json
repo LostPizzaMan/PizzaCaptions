@@ -5,6 +5,7 @@
   "protocol": 1,
   "entry": "engine_server.py",
   "python": "python/python.exe",
+  "needs_vc_runtime": true,
   "languages": ["ja"],
   "voices": [
     {

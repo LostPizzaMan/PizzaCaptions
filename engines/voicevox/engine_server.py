@@ -31,7 +31,6 @@ _synth = None
 _synth_lock = threading.Lock()
 _models_dir: Path | None = None
 
-
 def _download_file(url: str, dest: Path) -> None:
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = dest.with_suffix(dest.suffix + ".part")
@@ -53,15 +52,12 @@ def _download_file(url: str, dest: Path) -> None:
     print(flush=True)
     tmp.replace(dest)
 
-
 def _asset_paths(base: Path):
-
     from voicevox_core.blocking import Onnxruntime
     ort_dll = base / "onnxruntime" / "lib" / Onnxruntime.LIB_VERSIONED_FILENAME
     dict_dirs = sorted((base / "dict").glob("open_jtalk_dic*"))
     vvm_files = sorted((base / "models" / "vvms").glob("*.vvm"))
     return ort_dll, (dict_dirs[0] if dict_dirs else None), vvm_files
-
 
 def _assets_present(base: Path) -> bool:
     ort_dll, dict_dir, vvm_files = _asset_paths(base)
@@ -70,9 +66,7 @@ def _assets_present(base: Path) -> bool:
     have = {p.name for p in vvm_files}
     return all(m in have for m in MODELS)
 
-
 def _run_downloader(exe: Path, target: Path, pattern: str, only_models: bool = False) -> None:
-
     scope = ["--only", "models"] if only_models else ["--exclude", "c-api"]
     cmd = [str(exe), *scope, "--models-pattern", pattern, "-o", str(target)]
     logger.info("Fetching VOICEVOX %s (%s) ...", pattern,
@@ -95,7 +89,6 @@ def _run_downloader(exe: Path, target: Path, pattern: str, only_models: bool = F
     if proc.wait() != 0:
         raise RuntimeError(f"VOICEVOX downloader exited with code {proc.returncode}")
 
-
 def _ensure_assets() -> Path:
     assert _models_dir is not None
     base = _models_dir / "voicevox_core"
@@ -110,9 +103,7 @@ def _ensure_assets() -> Path:
         raise RuntimeError("VOICEVOX assets missing after download (see log)")
     return base
 
-
 def _load() -> None:
-
     global _synth
     from voicevox_core.blocking import Onnxruntime, OpenJtalk, Synthesizer, VoiceModelFile
     base = _ensure_assets()
@@ -129,7 +120,6 @@ def _load() -> None:
     _synth = synth
     logger.info("VOICEVOX ready (%d voice model file(s) loaded).", len(vvm_files))
 
-
 def _do_synth(text: str, style_id: int, speed: float) -> tuple[bytes, int]:
     with _synth_lock:
         aq = _synth.create_audio_query(text, style_id)
@@ -142,14 +132,11 @@ def _do_synth(text: str, style_id: int, speed: float) -> tuple[bytes, int]:
     with wave.open(io.BytesIO(wav), "rb") as w:
         return w.readframes(w.getnframes()), w.getframerate()
 
-
 app = FastAPI()
-
 
 @app.get("/health")
 def health():
     return {"status": "ok", "engine": "voicevox"}
-
 
 @app.post("/speak")
 async def speak(req: Request):
@@ -178,7 +165,6 @@ async def speak(req: Request):
     return Response(content=pcm, media_type="application/octet-stream",
                     headers={"X-Sample-Rate": str(rate)})
 
-
 def main():
     global _models_dir
     parser = argparse.ArgumentParser()
@@ -192,7 +178,6 @@ def main():
     _load()
     logger.info("Listening on 127.0.0.1:%d", args.port)
     uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="warning")
-
 
 if __name__ == "__main__":
     main()

@@ -8,12 +8,10 @@ logger = logging.getLogger(__name__)
 JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x2000
 JobObjectExtendedLimitInformation = 9
 
-
 class _IO_COUNTERS(ctypes.Structure):
     _fields_ = [(name, ctypes.c_uint64) for name in (
         "ReadOperationCount", "WriteOperationCount", "OtherOperationCount",
         "ReadTransferCount", "WriteTransferCount", "OtherTransferCount")]
-
 
 class _JOBOBJECT_BASIC_LIMIT_INFORMATION(ctypes.Structure):
     _fields_ = [
@@ -28,7 +26,6 @@ class _JOBOBJECT_BASIC_LIMIT_INFORMATION(ctypes.Structure):
         ("SchedulingClass", ctypes.c_uint32),
     ]
 
-
 class _JOBOBJECT_EXTENDED_LIMIT_INFORMATION(ctypes.Structure):
     _fields_ = [
         ("BasicLimitInformation", _JOBOBJECT_BASIC_LIMIT_INFORMATION),
@@ -39,9 +36,7 @@ class _JOBOBJECT_EXTENDED_LIMIT_INFORMATION(ctypes.Structure):
         ("PeakJobMemoryUsed", ctypes.c_size_t),
     ]
 
-
 _job: int | None = None
-
 
 def _create_job() -> int:
     kernel32 = ctypes.windll.kernel32
@@ -56,7 +51,6 @@ def _create_job() -> int:
         kernel32.CloseHandle(job)
         return 0
     return job
-
 
 def assign(proc: subprocess.Popen) -> None:
     if sys.platform != "win32":

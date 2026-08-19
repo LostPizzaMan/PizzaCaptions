@@ -1,0 +1,12 @@
+{
+  "id": "win_captions",
+  "kind": "win_captions",
+  "name": "Windows 11 Live Captions",
+  "protocol": 1,
+  "experimental": true,
+  "entry": "engine_server.py",
+  "python": "python/python.exe",
+  "languages": ["multi"],
+  "models": ["default"],
+  "default_model": "default"
+}

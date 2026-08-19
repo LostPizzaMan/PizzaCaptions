@@ -41,7 +41,7 @@ MODELS = {
 }
 
 VAD_THRESHOLD = float(os.environ.get("VAD_THRESHOLD", "0.5"))
-VAD_MIN_SILENCE_S = float(os.environ.get("VAD_MIN_SILENCE_S", "0.5"))
+VAD_MIN_SILENCE_S = float(os.environ.get("VAD_MIN_SILENCE_S", "0.7"))
 VAD_MIN_SPEECH_S = float(os.environ.get("VAD_MIN_SPEECH_S", "0.25"))
 VAD_MAX_SPEECH_S = float(os.environ.get("VAD_MAX_SPEECH_S", "20.0"))
 VAD_BUFFER_S = 60.0
@@ -60,7 +60,7 @@ MIN_RIGHT_CTX_S = float(os.environ.get("PARAKEET_STREAM_RIGHT_CTX_S", "0.4"))
 DECODING_METHOD = os.environ.get("PARAKEET_DECODING", "greedy_search")
 NUM_THREADS = int(os.environ.get("PARAKEET_STREAM_THREADS", "1"))
 DEBUG_TIMING = bool(os.environ.get("PARAKEET_STREAM_DEBUG"))
-STABLE_PREVIEW = os.environ.get("PARAKEET_STREAM_RAW") is None
+STABLE_PREVIEW = os.environ.get("PARAKEET_STREAM_STABLE") is not None
 
 FLUSH_PEAK = 3 / 32768
 FLUSH_HOLD = 0.2
@@ -71,7 +71,6 @@ _is_cjk = False
 _session_lock = asyncio.Lock()
 
 _SENTINEL = object()
-
 
 def _load_recognizer(lang: str):
     global _recognizer, _is_cjk
@@ -109,19 +108,16 @@ def _load_recognizer(lang: str):
         )
     logger.info("Parakeet streaming model loaded (lang=%s)", lang)
 
-
 def _decode(samples_f32: np.ndarray):
     stream = _recognizer.create_stream()
     stream.accept_waveform(SAMPLE_RATE, samples_f32)
     _recognizer.decode_stream(stream)
     return stream.result
 
-
 def _transcribe(samples_f32: np.ndarray) -> str:
     if len(samples_f32) < SAMPLE_RATE * 0.05:
         return ""
     return _decode(samples_f32).text.strip()
-
 
 def _common_prefix_len(a: list, b: list) -> int:
     n, m = 0, min(len(a), len(b))
@@ -129,9 +125,7 @@ def _common_prefix_len(a: list, b: list) -> int:
         n += 1
     return n
 
-
 def _prefix_safe(shown: str, final: str) -> str:
-
     if not shown or final.startswith(shown):
         return final
     for n in range(min(len(shown), 40), 7, -1):
@@ -146,15 +140,10 @@ def _prefix_safe(shown: str, final: str) -> str:
                 return shown + final[idx + len(bare):]
     return shown
 
-
 def _normalize(word: str) -> str:
-
     return "".join(c for c in word.lower() if c.isalnum())
 
-
 class WindowedCommitter:
-
-
     def __init__(self):
         self.committed: list[tuple[str, float]] = []
         self.committed_s = 0.0
@@ -207,7 +196,6 @@ class WindowedCommitter:
         words = self.committed if STABLE_PREVIEW else self.committed + self.pending
         return "".join(w for w, _ in words).strip()
 
-
 def _build_vad() -> sherpa_onnx.VoiceActivityDetector:
     vad_path = _models_dir / "silero_vad.onnx"
     if not vad_path.exists():
@@ -222,14 +210,11 @@ def _build_vad() -> sherpa_onnx.VoiceActivityDetector:
     vad_config.sample_rate = SAMPLE_RATE
     return sherpa_onnx.VoiceActivityDetector(vad_config, buffer_size_in_seconds=VAD_BUFFER_S)
 
-
 app = FastAPI()
-
 
 @app.get("/health")
 def health():
     return {"status": "ok", "engine": "parakeet-stream"}
-
 
 @app.websocket("/asr")
 async def asr(ws: WebSocket):
@@ -380,7 +365,6 @@ async def asr(ws: WebSocket):
                 pass
             logger.info("Session ended")
 
-
 def main():
     global _models_dir
     parser = argparse.ArgumentParser()
@@ -394,7 +378,6 @@ def main():
     _load_recognizer(args.language)
     logger.info("Listening on 127.0.0.1:%d", args.port)
     uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="warning")
-
 
 if __name__ == "__main__":
     main()

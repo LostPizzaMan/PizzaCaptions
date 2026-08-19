@@ -15,10 +15,8 @@ logger = logging.getLogger("winvoices-engine")
 
 app = FastAPI()
 
-
 def _short_lang(bcp47: str) -> str:
     return (bcp47 or "en").split("-")[0].lower()
-
 
 def _all_voices():
     from winsdk.windows.media.speechsynthesis import SpeechSynthesizer
@@ -27,7 +25,6 @@ def _all_voices():
     except Exception:
         return list(SpeechSynthesizer.get_all_voices())
 
-
 def _list_voices() -> list[dict]:
     out = []
     for v in _all_voices():
@@ -35,7 +32,6 @@ def _list_voices() -> list[dict]:
                     "lang": _short_lang(v.language), "bcp47": v.language,
                     "gender": "female" if int(v.gender) == 1 else "male"})
     return out
-
 
 async def _synth(text: str, voice_id: str, speed: float) -> tuple[bytes, int]:
     from winsdk.windows.media.speechsynthesis import SpeechSynthesizer
@@ -67,16 +63,13 @@ async def _synth(text: str, voice_id: str, speed: float) -> tuple[bytes, int]:
         pcm = audioop.tomono(pcm, 2, 0.5, 0.5)
     return pcm, rate
 
-
 @app.get("/health")
 def health():
     return {"status": "ok", "engine": "winvoices"}
 
-
 @app.get("/voices")
 def voices():
     return {"voices": _list_voices()}
-
 
 @app.post("/speak")
 async def speak(req: Request):
@@ -99,7 +92,6 @@ async def speak(req: Request):
         return JSONResponse({"error": str(e)}, status_code=500)
     return Response(content=pcm, media_type="application/octet-stream",
                     headers={"X-Sample-Rate": str(rate)})
-
 
 def main():
     parser = argparse.ArgumentParser()
@@ -125,7 +117,6 @@ def main():
         raise SystemExit(1)
     logger.info("Windows Voices ready (%d voices), listening on 127.0.0.1:%d", n, args.port)
     uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="warning")
-
 
 if __name__ == "__main__":
     main()

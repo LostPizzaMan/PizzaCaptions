@@ -14,16 +14,40 @@ _app_handle = None
 _win = None
 _hk = None
 _lock = threading.Lock()
-
+_shown = False
+_on_state = None
+_guard = None
+_on_blocked = None
 
 def set_app_handle(handle) -> None:
     global _app_handle
     _app_handle = handle
 
+def set_guard(cb) -> None:
+    global _guard
+    _guard = cb
+
+def set_blocked_callback(cb) -> None:
+    global _on_blocked
+    _on_blocked = cb
+
+def set_state_callback(cb) -> None:
+    global _on_state
+    _on_state = cb
+
+def is_shown() -> bool:
+    return _shown
+
+def _notify() -> None:
+    cb = _on_state
+    if cb is not None:
+        try:
+            cb(_shown)
+        except Exception:
+            logger.exception("overlay state callback failed")
 
 def available() -> bool:
     return _app_handle is not None
-
 
 def _build_or_get_window():
     global _win
@@ -44,7 +68,6 @@ def _build_or_get_window():
     )
     logger.info("overlay window built")
     return _win
-
 
 def _do_show() -> None:
     try:
@@ -69,7 +92,6 @@ def _do_show() -> None:
     except Exception as e:
         logger.error("overlay show failed: %s", e)
 
-
 def _do_hide() -> None:
     try:
         if _win is not None:
@@ -77,26 +99,37 @@ def _do_hide() -> None:
     except Exception as e:
         logger.error("overlay hide failed: %s", e)
 
-
 def show() -> None:
+    global _shown
     if _app_handle is None:
         logger.info("overlay unavailable (no app handle; browser dev?)")
         return
+    if _guard is not None and not _guard():
+        logger.info("OCR overlay blocked: guard says not ready (OCR not installed)")
+        if _on_blocked is not None:
+            try:
+                _on_blocked()
+            except Exception:
+                logger.exception("overlay blocked callback failed")
+        return
     _app_handle.run_on_main_thread(_do_show)
-
+    if not _shown:
+        _shown = True
+        _notify()
 
 def hide() -> None:
+    global _shown
     if _app_handle is None:
         return
     _app_handle.run_on_main_thread(_do_hide)
-
+    if _shown:
+        _shown = False
+        _notify()
 
 def _on_hotkey() -> None:
     show()
 
-
 def start() -> None:
-
     global _hk
     with _lock:
         if _hk is not None or _app_handle is None:
@@ -107,7 +140,6 @@ def start() -> None:
             logger.info("OCR overlay hotkey Alt+S registered")
         else:
             logger.warning("OCR overlay hotkey Alt+S not registered (already in use)")
-
 
 def stop() -> None:
     global _hk

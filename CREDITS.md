@@ -79,6 +79,11 @@ UI) and looks words up in JMdict.
   of Science and Technology; ICOT Free Software terms). Full texts in
   `web/vendor/kuromoji/LICENSE-2.0.txt` and `NOTICE.md`.
 
+- **[SudachiPy](https://github.com/WorksApplications/SudachiPy)** + **[SudachiDict](https://github.com/WorksApplications/SudachiDict)** - Apache-2.0
+  © Works Applications. Optional high-accuracy Japanese word segmentation, run
+  through a local process. Its dictionary downloads only when you turn on High
+  accuracy and is **not redistributed** with this app.
+
 ## Screen OCR
 
 The optional Screen OCR engine (snip and read on-screen text) downloads its model

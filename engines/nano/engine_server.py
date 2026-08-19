@@ -13,6 +13,7 @@ from pathlib import Path
 
 import numpy as np
 import sherpa_onnx
+from vad_segment import VadSegmenter
 import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
@@ -26,6 +27,7 @@ VAD_MIN_SILENCE_S = float(os.environ.get("VAD_MIN_SILENCE_S", "0.7"))
 VAD_MIN_SPEECH_S = float(os.environ.get("VAD_MIN_SPEECH_S", "0.25"))
 VAD_MAX_SPEECH_S = float(os.environ.get("VAD_MAX_SPEECH_S", "20.0"))
 VAD_BUFFER_S = 60.0
+VAD_PREROLL_MS = float(os.environ.get("VAD_PREROLL_MS", "500"))
 VAD_WINDOW = 512
 
 FLUSH_PEAK = 3 / 32768
@@ -39,9 +41,7 @@ _enc_gguf: Path | None = None
 _llm_gguf: Path | None = None
 _session_lock = asyncio.Lock()
 
-
 def _resolve_assets():
-
     global _binary, _enc_gguf, _llm_gguf
     pack = Path(__file__).parent
     cand = [pack / "bin" / "llama-funasr-cli.exe", pack / "bin" / "llama-funasr-cli"]
@@ -57,7 +57,6 @@ def _resolve_assets():
     logger.info("Fun-ASR-Nano ready: %s + %s (%s threads)",
                 _binary.name, _llm_gguf.name, NANO_THREADS)
 
-
 def _write_wav(path: str, samples_f32: np.ndarray):
     pcm = np.clip(samples_f32, -1.0, 1.0)
     pcm = (pcm * 32767).astype(np.int16)
@@ -67,9 +66,7 @@ def _write_wav(path: str, samples_f32: np.ndarray):
         w.setframerate(SAMPLE_RATE)
         w.writeframes(pcm.tobytes())
 
-
 def _transcribe(samples_f32: np.ndarray) -> str:
-
     if len(samples_f32) < SAMPLE_RATE * 0.05:
         return ""
     fd, wav = tempfile.mkstemp(suffix=".wav", prefix="nano_")
@@ -94,29 +91,11 @@ def _transcribe(samples_f32: np.ndarray) -> str:
         except OSError:
             pass
 
-
-def _build_vad() -> sherpa_onnx.VoiceActivityDetector:
-    vad_path = _models_dir / "silero_vad.onnx"
-    if not vad_path.exists():
-        raise FileNotFoundError(f"Silero VAD model not found at {vad_path}")
-    vad_config = sherpa_onnx.VadModelConfig()
-    vad_config.silero_vad.model = str(vad_path)
-    vad_config.silero_vad.threshold = VAD_THRESHOLD
-    vad_config.silero_vad.min_silence_duration = VAD_MIN_SILENCE_S
-    vad_config.silero_vad.min_speech_duration = VAD_MIN_SPEECH_S
-    vad_config.silero_vad.window_size = VAD_WINDOW
-    vad_config.silero_vad.max_speech_duration = VAD_MAX_SPEECH_S
-    vad_config.sample_rate = SAMPLE_RATE
-    return sherpa_onnx.VoiceActivityDetector(vad_config, buffer_size_in_seconds=VAD_BUFFER_S)
-
-
 app = FastAPI()
-
 
 @app.get("/health")
 def health():
     return {"status": "ok", "engine": "nano"}
-
 
 @app.websocket("/asr")
 async def asr(ws: WebSocket):
@@ -165,16 +144,12 @@ async def asr(ws: WebSocket):
 
         sender = asyncio.create_task(send_results())
 
-        vad = _build_vad()
-        vad_buffer = np.empty(0, dtype=np.float32)
-        silence_since = None
-        flushed = False
-
-        def pop_segments():
-            while not vad.empty():
-                samples = np.array(vad.front.samples)
-                vad.pop()
-                segment_queue.put(samples)
+        seg = VadSegmenter(
+            _models_dir / "silero_vad.onnx",
+            sample_rate=SAMPLE_RATE, threshold=VAD_THRESHOLD,
+            min_silence_s=VAD_MIN_SILENCE_S, min_speech_s=VAD_MIN_SPEECH_S,
+            max_speech_s=VAD_MAX_SPEECH_S, window=VAD_WINDOW, buffer_s=VAD_BUFFER_S,
+            preroll_ms=VAD_PREROLL_MS, flush_peak=FLUSH_PEAK, flush_hold_s=FLUSH_HOLD)
 
         await ws.send_text(json.dumps({"type": "ready"}))
         logger.info("Session started")
@@ -182,40 +157,16 @@ async def asr(ws: WebSocket):
             while True:
                 data = await ws.receive_bytes()
                 pcm = np.frombuffer(data, dtype=np.int16).astype(np.float32) / 32768.0
-
-                peak = float(np.max(np.abs(pcm))) if len(pcm) else 0.0
-                now = time.monotonic()
-                if peak < FLUSH_PEAK:
-                    if not flushed:
-                        if silence_since is None:
-                            silence_since = now
-                        elif now - silence_since >= FLUSH_HOLD:
-                            vad.flush()
-                            pop_segments()
-                            vad = _build_vad()
-                            vad_buffer = np.empty(0, dtype=np.float32)
-                            silence_since = None
-                            flushed = True
-                else:
-                    silence_since = None
-                    flushed = False
-
-                vad_buffer = np.concatenate([vad_buffer, pcm])
-                while len(vad_buffer) >= VAD_WINDOW:
-                    vad.accept_waveform(vad_buffer[:VAD_WINDOW])
-                    vad_buffer = vad_buffer[VAD_WINDOW:]
-                pop_segments()
+                for utt in seg.feed(pcm):
+                    segment_queue.put(utt)
         except WebSocketDisconnect:
             logger.info("Session closed by client")
         except Exception as e:
             logger.error("Session error: %s", e)
         finally:
             try:
-                while len(vad_buffer) >= VAD_WINDOW:
-                    vad.accept_waveform(vad_buffer[:VAD_WINDOW])
-                    vad_buffer = vad_buffer[VAD_WINDOW:]
-                vad.flush()
-                pop_segments()
+                for utt in seg.drain():
+                    segment_queue.put(utt)
             except Exception as e:
                 logger.warning("VAD drain error: %s", e)
             segment_queue.put(None)
@@ -226,7 +177,6 @@ async def asr(ws: WebSocket):
             except Exception:
                 pass
             logger.info("Session ended")
-
 
 def main():
     global _models_dir
@@ -241,7 +191,6 @@ def main():
     _resolve_assets()
     logger.info("Listening on 127.0.0.1:%d", args.port)
     uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="warning")
-
 
 if __name__ == "__main__":
     main()

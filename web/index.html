@@ -1,611 +1,433 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Live Transcription</title>
-  <link rel="stylesheet" href="/styles.css?v=39" />
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pizza Captions</title>
+
+<link rel="stylesheet" href="/common.css?v=1">
+<script src="/vendor/kuromoji/kuromoji.js"></script>
+
+<link rel="stylesheet" href="/styles.css?v=41">
 </head>
 <body>
 
-<header>
-  <div id="status-dot"></div>
-  <h1>Live Transcription</h1>
-  <span id="status-text">Stopped</span>
-</header>
+  <div class="app" id="app">
 
-<div class="controls">
-  <button id="btn-start">Start</button>
-  <button id="btn-stop" disabled>Stop</button>
-  <button id="btn-clear">Clear</button>
-  <div class="source-toggle">
-    <button id="src-mic" class="active">Mic</button>
-    <button id="src-loopback">Speaker</button>
-  </div>
-  <select id="device-select" style="background:#1a1a1a;border:1px solid #333;border-radius:6px;color:#ccc;font-size:13px;padding:5px 10px;">
-    <option value="">Loading devices...</option>
-  </select>
-  <select id="lang-select" style="background:#1a1a1a;border:1px solid #333;border-radius:6px;color:#ccc;font-size:13px;padding:5px 10px;">
-    <option value="ja" selected>Japanese</option>
-    <option value="en">English</option>
-    <option value="zh">Chinese</option>
-    <option value="ko">Korean</option>
-    <option value="fr">French</option>
-    <option value="es">Spanish</option>
-    <option value="pt">Portuguese</option>
-    <option value="de">German</option>
-    <option value="ru">Russian</option>
-    <option value="ar">Arabic</option>
-    <option value="ms">Malay</option>
-    <option value="lv">Latvian</option>
-    <option value="nl">Dutch</option>
-    <option value="auto">Auto</option>
-  </select>
-  <button id="btn-swap-lang" title="Swap source and target languages" style="background:#1a1a1a;border:1px solid #333;border-radius:6px;color:#999;font-size:14px;padding:5px 9px;cursor:pointer;line-height:1;">⇄</button>
-  <select id="target-lang-select" style="background:#1a1a1a;border:1px solid #333;border-radius:6px;color:#ccc;font-size:13px;padding:5px 10px;">
-    <option value="en-US" selected>English</option>
-    <option value="ja-JP">Japanese</option>
-    <option value="zh-CN">Chinese (Simplified)</option>
-    <option value="zh-TW">Chinese (Traditional)</option>
-    <option value="ko-KR">Korean</option>
-    <option value="fr-FR">French</option>
-    <option value="es-ES">Spanish</option>
-    <option value="pt-BR">Portuguese</option>
-    <option value="ar-SA">Arabic</option>
-    <option value="th-TH">Thai</option>
-    <option value="tr-TR">Turkish</option>
-    <option value="lv-LV">Latvian</option>
-    <option value="nl-NL">Dutch</option>
-  </select>
-  <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:#aaa;margin-left:8px;cursor:pointer;">
-    <input type="checkbox" id="osc-toggle" style="cursor:pointer;"> VRChat OSC
-  </label>
-  <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:#aaa;cursor:pointer;">
-    <input type="checkbox" id="translate-toggle" style="cursor:pointer;"> Translate
-  </label>
-  <label id="speak-toggle-label" style="display:none;align-items:center;gap:6px;font-size:13px;color:#aaa;cursor:pointer;" title="Voice each finalized caption line aloud via TTS">
-    <input type="checkbox" id="speak-toggle" style="cursor:pointer;"> Auto-TTS
-  </label>
-  <span id="tts-credit-chip" title="Credit this voice wherever you publish the audio; click it to open the voice's terms">
-    <a id="tts-credit-chip-link" href="#" target="_blank" rel="noopener"><code id="tts-credit-chip-text"></code></a>
-    <button id="tts-credit-chip-copy" title="Copy credit">⧉</button>
-  </span>
-  <span id="mic-label"></span>
-  <button id="btn-captions" title="On-screen captions overlay" style="background:#1a1a1a;border:1px solid #333;border-radius:6px;color:#ccc;font-size:13px;font-weight:600;letter-spacing:0.05em;padding:5px 12px;cursor:pointer;">CC</button>
-  <button id="btn-speak" title="Text-to-speech" style="display:none;background:#1a1a1a;border:1px solid #333;border-radius:6px;color:#ccc;font-size:13px;padding:5px 12px;cursor:pointer;">🔊 TTS</button>
-  <button id="btn-config" title="Translation settings">⚙</button>
-</div>
-
-<div id="gate-line" title="Live input level vs your noise gate. Green = passing the gate; grey = below it (ignored). Set the threshold in Settings &rsaquo; Audio.">
-  <div id="gate-line-fill"></div>
-  <div id="gate-line-mark"></div>
-</div>
-
-<div id="translate-banner" hidden>
-  <span id="translate-banner-text"></span>
-  <button id="translate-banner-settings">Settings</button>
-  <button id="translate-banner-dismiss" title="Dismiss">✕</button>
-</div>
-
-
-<div id="config-panel">
-  <div id="config-header">
-    <span>Settings</span>
-    <button id="config-close">✕</button>
-  </div>
-  <div id="update-banner">
-    <div class="ub-icon">&#8593;</div>
-    <div class="ub-text">
-      <div class="ub-title">Update available: v<span id="ub-latest"></span></div>
-      <div class="ub-sub">You are on v<span id="ub-current"></span>.</div>
-    </div>
-    <button id="ub-download">Download</button>
-  </div>
-  <div id="config-main">
-  <div id="config-left">
-  <div id="config-body">
-    <section class="settings-page active" id="page-engine">
-    <label class="config-label">Transcription Engine <span style="color:#555;font-size:11px;">(applies immediately)</span></label>
-    <select id="cfg-engine"></select>
-    <div id="cfg-engine-experimental" style="display:none;">
-      <span class="exp-badge">Experimental</span>
-      <span class="exp-text">Preview feature - may be rough or change, and uses more CPU than the standard engine.</span>
-    </div>
-    <div id="cfg-engine-install" style="display:none;margin-top:8px;">
-      <button id="cfg-install-btn" style="background:#685EBD;border:none;border-radius:6px;color:#fff;font-size:12px;padding:6px 12px;cursor:pointer;">Install engine</button>
-      <span id="cfg-install-progress" style="font-size:12px;color:#888;margin-left:8px;font-family:Consolas,'Courier New',monospace;"></span>
-    </div>
-    <button id="cfg-uninstall-btn" style="display:none;margin-top:8px;align-self:flex-start;background:#2a2a2a;border:1px solid #3a3a3a;border-radius:6px;color:#c66;font-size:11px;padding:4px 10px;cursor:pointer;">Uninstall engine</button>
-    <div id="cfg-model-row">
-      <label class="config-label" style="margin-top:10px;">Model</label>
-      <select id="cfg-model"></select>
-    </div>
-
-    <label class="config-label" style="margin-top:12px;">Models &amp; Storage</label>
-    <div id="cfg-models" style="font-size:12px;color:#999;display:flex;flex-direction:column;gap:6px;"></div>
-    <div id="cfg-models-footer" style="font-size:11px;color:#555;font-family:Consolas,'Courier New',monospace;"></div>
-    </section>
-
-    <section class="settings-page" id="page-voices">
-    <label class="config-label">Voices <span style="color:#555;font-size:11px;">(text-to-speech · optional)</span></label>
-    <p style="font-size:11px;color:#777;line-height:1.5;margin:0 0 4px;">
-      Adds a “🔊 TTS” voice you can type into, or have it auto-voice your captions.
-      Play it on your speakers, or route it into VRChat with VB-Audio Cable.
-    </p>
-    <div id="cfg-tts-list"></div>
-    <span id="cfg-tts-progress" style="font-size:12px;color:#888;font-family:Consolas,'Courier New',monospace;"></span>
-
-    
-    <div id="cfg-tts-agree" style="display:none;margin-top:10px;padding:10px;border:1px solid #3a3a3a;border-radius:8px;background:#181818;">
-      <div class="config-label" id="cfg-tts-agree-title" style="margin:0 0 6px;">License terms</div>
-      <p id="cfg-tts-agree-summary" style="font-size:11px;color:#aaa;line-height:1.6;margin:0 0 8px;"></p>
-      <div id="cfg-tts-agree-links" style="font-size:11px;margin:0 0 8px;display:flex;flex-direction:column;gap:3px;"></div>
-      <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:#ccc;cursor:pointer;">
-        <input type="checkbox" id="cfg-tts-agree-box"> I have read and accept these terms.
-      </label>
-      <div style="display:flex;gap:8px;margin-top:10px;">
-        <button id="cfg-tts-agree-continue" disabled style="background:#685EBD;border:none;border-radius:6px;color:#fff;font-size:12px;padding:6px 12px;cursor:pointer;">Accept &amp; download</button>
-        <button id="cfg-tts-agree-cancel" style="background:#2a2a2a;border:1px solid #3a3a3a;border-radius:6px;color:#ccc;font-size:12px;padding:6px 12px;cursor:pointer;">Cancel</button>
+    <div class="title">
+      <span class="wm">Pizza Captions</span>
+      <span class="ver" id="ver"></span>
+      <span class="live off" id="live">Idle</span>
+      <div class="tools">
+        <button class="tool" data-tool="ocr">OCR</button>
+        <button class="tool" data-tool="cc" aria-haspopup="dialog">CC</button>
+        <button class="tool" data-tool="tts" aria-haspopup="dialog">TTS</button>
+        <button class="tool" data-tool="settings" aria-haspopup="dialog">Settings</button>
       </div>
     </div>
 
-    
-    <div id="cfg-tts-catalog-section" style="display:none;margin-top:14px;">
-      <label class="config-label">Add Japanese voices <span style="color:#555;font-size:11px;">(VOICEVOX)</span></label>
-      <p style="font-size:11px;color:#777;line-height:1.5;margin:0 0 6px;">
-        Download more characters on demand (~60 MB per model file; some files bundle
-        several characters). Credit each clip you publish as shown, e.g. “VOICEVOX:ずんだもん”.
-      </p>
-      <input id="cfg-tts-catalog-filter" type="text" placeholder="Filter characters…"
-        style="width:100%;box-sizing:border-box;margin:0 0 8px;background:#181818;border:1px solid #333;border-radius:6px;color:#ddd;font-size:12px;padding:6px 8px;" />
-      <span id="cfg-tts-catalog-progress" style="font-size:12px;color:#888;font-family:Consolas,'Courier New',monospace;"></span>
-      <div id="cfg-tts-catalog-list"></div>
-    </div>
-    </section>
 
-    <section class="settings-page" id="page-audio">
-    <label class="config-label">Noise Gate <span style="color:#555;font-size:11px;">(applies immediately)</span><span id="level-value" style="float:right;color:#999;font-size:12px;font-family:Consolas,'Courier New',monospace;">0%</span></label>
-    <div id="level-meter" title="Input level. Drag the marker to set the minimum sound level; quieter audio is ignored.">
-      <div id="level-bar"></div>
-      <input type="range" id="level-slider" min="0" max="100" value="0" />
-    </div>
-    <div style="font-size:11px;color:#555;line-height:1.5;">
-      Audio quieter than the marker is ignored, such as background chatter, keyboard
-      noise, or a TV in the room. Start capture to see the live level, then drag the
-      marker just above where the bar sits while you are not speaking. All the way
-      left turns the gate off.
-    </div>
-
-    <label class="config-label" style="margin-top:16px;">Split long speech <span style="color:#555;font-size:11px;">(applies on next start)</span><span id="phrase-value" style="float:right;color:#999;font-size:12px;font-family:Consolas,'Courier New',monospace;">20s</span></label>
-    <input type="range" id="phrase-slider" min="4" max="20" step="1" value="20" style="width:100%;cursor:pointer;" />
-    <div style="font-size:11px;color:#555;line-height:1.5;">
-      Talk longer than this without a clear pause and the transcription is split at
-      your next natural breath, instead of holding one long line, so captions,
-      translation, and TTS keep flowing. Lower is snappier for long talkers; higher
-      keeps whole sentences together (better for translation). Does not affect the
-      Whisper engine, which segments on its own.
-    </div>
-
-    <label class="config-label" style="margin-top:16px;">VRChat OSC</label>
-    <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:#ccc;cursor:pointer;">
-      <input type="checkbox" id="cfg-mute-suppress" style="cursor:pointer;" checked />
-      Silence captions while self-muted in VRChat
-    </label>
-    <div style="font-size:11px;color:#555;line-height:1.5;margin-top:4px;">
-      When you mute your mic in VRChat, stop sending captions to the chatbox until
-      you unmute. Requires OSC enabled in VRChat.
-    </div>
-
-    <label class="config-label" style="margin-top:16px;">Diagnostics</label>
-    <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:#ccc;cursor:pointer;">
-      <input type="checkbox" id="cfg-latency-hud" style="cursor:pointer;" />
-      Show latency readout
-    </label>
-    <div style="font-size:11px;color:#555;line-height:1.5;margin-top:4px;">
-      A small corner overlay showing the last line's processing time per stage
-      (STT + Translate + TTS). This is compute time only, not the felt end-to-end
-      delay, so it excludes the pause the app waits out before a line is final.
-    </div>
-    </section>
-
-    <section class="settings-page" id="page-translation">
-    <label class="config-label">System Prompt <span style="color:#555;font-size:11px;">({language} = target lang)</span></label>
-    <textarea id="cfg-system-prompt" rows="5" placeholder="Loading..."></textarea>
-
-    <label class="config-label" style="margin-top:12px;">Translation Backend</label>
-    <select id="cfg-backend">
-      <option value="google">Google (free)</option>
-      <option value="deepl">DeepL</option>
-      <option value="openai">OpenAI-compatible</option>
-      <option value="openrouter">OpenRouter</option>
-      <option value="lmstudio">LM Studio (local)</option>
-      <option value="libretranslate">LibreTranslate (local)</option>
-      <option value="ollama">Ollama (local)</option>
-    </select>
-
-    <div id="cfg-deepl-section" class="config-section">
-      <label class="config-label">URL</label>
-      <input id="cfg-deepl-url" type="text" />
-      <label class="config-label" style="margin-top:10px;">Key</label>
-      <input id="cfg-deepl-key" type="password" />
-    </div>
-
-    <div id="cfg-openai-section" class="config-section">
-      <label class="config-label">URL</label>
-      <input id="cfg-openai-url" type="text" />
-      <label class="config-label" style="margin-top:10px;">Key</label>
-      <input id="cfg-openai-key" type="password" />
-      <label class="config-label" style="margin-top:10px;">Model</label>
-      <input id="cfg-openai-model" type="text" />
-      <label class="config-label" style="margin-top:10px;">Temperature</label>
-      <input id="cfg-openai-temp" type="number" min="0" max="2" step="0.1" />
-    </div>
-
-    <div id="cfg-openrouter-section" class="config-section">
-      <label class="config-label">Key</label>
-      <input id="cfg-openrouter-key" type="password" />
-      <label class="config-label" style="margin-top:10px;">Model</label>
-      <input id="cfg-openrouter-model" type="text" />
-      <label class="config-label" style="margin-top:10px;">Temperature</label>
-      <input id="cfg-openrouter-temp" type="number" min="0" max="2" step="0.1" />
-    </div>
-
-    <div id="cfg-lmstudio-section" class="config-section">
-      <label class="config-label">URL</label>
-      <input id="cfg-lmstudio-url" type="text" />
-      <label class="config-label" style="margin-top:10px;">Model</label>
-      <div style="display:flex;gap:6px;align-items:center;">
-        <select id="cfg-lmstudio-model" style="flex:1;min-width:0;"></select>
-        <button id="cfg-lmstudio-refresh" type="button" title="Re-read the model list from LM Studio"
-                style="background:#1a1a1a;border:1px solid #333;border-radius:6px;color:#999;
-                       font-size:13px;padding:6px 10px;cursor:pointer;line-height:1;flex:none;">↻</button>
+    <div class="strip">
+      <div class="tr" id="tr-you" role="button" tabindex="0" aria-haspopup="dialog" aria-expanded="false" aria-label="You transport settings">
+        <button class="runbtn" data-run="you" aria-label="Start or stop You"><span class="tri"></span></button>
+        <div class="trbody"><span class="role">You &middot; microphone</span><span class="eng" id="you-eng">&mdash;</span><span class="flow" id="you-flow"></span></div>
+        <span class="caret">&#8964;</span>
+        <span class="lvl"><span class="lvl-fill"></span><span class="lvl-gate"></span></span>
       </div>
-      <div id="cfg-lmstudio-model-note" style="font-size:11px;color:#555;line-height:1.5;margin-top:4px;"></div>
-      <label class="config-label" style="margin-top:10px;">Temperature</label>
-      <input id="cfg-lmstudio-temp" type="number" min="0" max="2" step="0.1" />
-    </div>
-
-    <div id="cfg-libretranslate-section" class="config-section">
-      <label class="config-label">URL</label>
-      <input id="cfg-libretranslate-url" type="text" />
-      <label class="config-label" style="margin-top:10px;">Key</label>
-      <input id="cfg-libretranslate-key" type="password" />
-    </div>
-
-    <div id="cfg-ollama-section" class="config-section">
-      <label class="config-label">URL</label>
-      <input id="cfg-ollama-url" type="text" />
-      <label class="config-label" style="margin-top:10px;">Model</label>
-      <input id="cfg-ollama-model" type="text" />
-      <label class="config-label" style="margin-top:10px;">Temperature</label>
-      <input id="cfg-ollama-temp" type="number" min="0" max="2" step="0.1" />
-    </div>
-    </section>
-
-    <section class="settings-page" id="page-phrases">
-    <label class="config-label">Blocked Phrases <span style="color:#555;font-size:11px;">(one per line, matched as whole words; these are cut out of a line, and a line that is nothing else is dropped. Common Whisper hallucinations are blocked by default)</span></label>
-    <textarea id="cfg-blocked-phrases" rows="4" placeholder="e.g. Thanks for watching"></textarea>
-
-    <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:#ccc;cursor:pointer;margin-top:14px;"
-           title="Some engines guess the language and can write Chinese or Japanese from a breath, a laugh, or music. This drops it.">
-      <input type="checkbox" id="cfg-other-alphabets" style="cursor:pointer;" />
-      <span>Discard non-English text <span style="color:#555;font-size:11px;">(only while the language is set to English)</span></span>
-    </label>
-    </section>
-
-    <section class="settings-page" id="page-ocr">
-    <label class="config-label">OCR <span style="color:#555;font-size:11px;">(read on-screen text · optional · experimental)</span></label>
-    <p style="font-size:11px;color:#777;line-height:1.5;margin:0 0 8px;">
-      Press <b>Alt&#8202;+&#8202;S</b> anytime, even in a game, for a see-through overlay:
-      drag a box to copy or translate text, or click a Japanese word to define it.
-      Reads Chinese, English, Japanese, and 46 more (Latin-script) languages, on your machine.
-    </p>
-    <div id="cfg-ocr-install" style="display:none;margin-top:4px;">
-      <button id="cfg-ocr-install-btn" style="background:#685EBD;border:none;border-radius:6px;color:#fff;font-size:12px;padding:6px 12px;cursor:pointer;">Install OCR</button>
-      <span style="font-size:11px;color:#666;margin-left:8px;">~700 MB (one time)</span>
-      <div id="cfg-ocr-progress" style="font-size:12px;color:#888;margin-top:6px;font-family:Consolas,'Courier New',monospace;"></div>
-    </div>
-    <div id="cfg-ocr-ready" style="display:none;">
-      <div style="font-size:12px;color:#7ac07a;">Installed. Press <b>Alt&#8202;+&#8202;S</b> anywhere to read on-screen text.</div>
-      <button id="cfg-ocr-uninstall-btn" style="margin-top:12px;align-self:flex-start;background:#2a2a2a;border:1px solid #3a3a3a;border-radius:6px;color:#c66;font-size:11px;padding:4px 10px;cursor:pointer;">Uninstall</button>
-    </div>
-    <div id="cfg-ocr-status" style="font-size:11px;color:#555;margin-top:10px;"></div>
-    </section>
-
-    <section class="settings-page" id="page-lang">
-    <label class="config-label">Japanese Dictionary <span style="color:#555;font-size:11px;">(optional · experimental)</span></label>
-    <p style="font-size:11px;color:#777;line-height:1.5;margin:0 0 8px;">
-      Click any Japanese word in a caption or OCR result to define it; conjugations
-      resolve to the base form (食べられなかった &#8594; 食べる). Hold <b>Shift</b> and
-      hover to look up from exactly where you point, for when a word isn&rsquo;t split
-      where you expect.
-    </p>
-    <div id="cfg-lang-install" style="display:none;margin-top:4px;">
-      <button id="cfg-lang-install-btn" style="background:#685EBD;border:none;border-radius:6px;color:#fff;font-size:12px;padding:6px 12px;cursor:pointer;">Download dictionary</button>
-      <span style="font-size:11px;color:#666;margin-left:8px;">~63 MB (one time)</span>
-      <div id="cfg-lang-progress" style="font-size:12px;color:#888;margin-top:6px;font-family:Consolas,'Courier New',monospace;"></div>
-    </div>
-    <div id="cfg-lang-ready" style="display:none;">
-      <div style="font-size:12px;color:#7ac07a;">Installed. Click a Japanese word in captions or OCR results to define it, or Shift+hover to pick the start.</div>
-      <button id="cfg-lang-uninstall-btn" style="margin-top:12px;align-self:flex-start;background:#2a2a2a;border:1px solid #3a3a3a;border-radius:6px;color:#c66;font-size:11px;padding:4px 10px;cursor:pointer;">Uninstall</button>
-    </div>
-    <div id="cfg-lang-status" style="font-size:11px;color:#555;margin-top:10px;"></div>
-    <p style="font-size:10px;color:#555;line-height:1.5;margin-top:14px;">
-      Word segmentation uses <b>kuromoji</b> (Apache-2.0) in your browser; definitions
-      are from <b>JMdict</b> (CC BY-SA 4.0), served by a local process. See the About page.
-    </p>
-    </section>
-
-    <section class="settings-page" id="page-about">
-    <div class="credits-title">Credits &amp; Licenses <span id="cfg-version"></span></div>
-    <div style="font-size:11px;color:#666;line-height:1.5;">Built on the following open-source projects and models.</div>
-
-    <div class="credits-head">Speech recognition</div>
-    <ul class="credits">
-      <li><a href="https://github.com/QuentinFuxa/WhisperLiveKit" target="_blank">WhisperLiveKit</a> &middot; <span class="lic">Apache-2.0</span><br>
-        <span class="desc">Streaming transcription engine wrapping SimulStreaming / faster-whisper.</span></li>
-      <li><a href="https://github.com/openai/whisper" target="_blank">OpenAI Whisper</a> models &middot; <span class="lic">MIT</span></li>
-      <li><a href="https://github.com/k2-fsa/sherpa-onnx" target="_blank">sherpa-onnx</a> &middot; <span class="lic">Apache-2.0</span><br>
-        <span class="desc">ONNX Runtime-based streaming speech recognition.</span></li>
-      <li><a href="https://huggingface.co/nvidia" target="_blank">NVIDIA Parakeet</a> models &middot; <span class="lic">CC-BY-4.0</span><br>
-        <span class="desc">&copy; NVIDIA Corporation. Used under the
-        <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank">Creative Commons Attribution 4.0 International License</a>.</span></li>
-      <li><a href="https://huggingface.co/FunAudioLLM/Fun-ASR-Nano-GGUF" target="_blank">Fun-ASR-Nano</a> models &middot; <span class="lic">Apache-2.0</span><br>
-        <span class="desc">&copy; FunAudioLLM. Run with the prebuilt CLI from the
-        <a href="https://github.com/modelscope/FunASR" target="_blank">FunASR</a> release (toolkit: MIT).</span></li>
-      <li><a href="https://huggingface.co/Qwen/Qwen3-ASR-1.7B" target="_blank">Qwen3-ASR</a> models &middot; <span class="lic">Apache-2.0</span><br>
-        <span class="desc">&copy; Qwen, in the
-        <a href="https://huggingface.co/ggml-org/Qwen3-ASR-1.7B-GGUF" target="_blank">GGUF conversion</a>
-        published by ggml-org.</span></li>
-      <li><a href="https://github.com/ggml-org/llama.cpp" target="_blank">llama.cpp</a> &middot; <span class="lic">MIT</span><br>
-        <span class="desc">&copy; 2023-2026 The ggml authors. GGUF inference runtime for the two
-        engines above.</span></li>
-      <li><a href="https://github.com/snakers4/silero-vad" target="_blank">Silero VAD</a> &middot; <span class="lic">MIT</span><br>
-        <span class="desc">Voice activity detection.</span></li>
-    </ul>
-    <div style="font-size:11px;color:#666;line-height:1.5;">Model weights and engine binaries are
-    downloaded when you install an engine and are not redistributed with this app.</div>
-
-    <div class="credits-head">Text to speech</div>
-    <ul class="credits">
-      <li><a href="https://huggingface.co/hexgrad/Kokoro-82M" target="_blank">Kokoro-82M</a> &middot; <span class="lic">Apache-2.0</span><br>
-        <span class="desc">Neural TTS voices (English and Japanese) via
-        <a href="https://github.com/thewh1teagle/kokoro-onnx" target="_blank">kokoro-onnx</a> (MIT).</span></li>
-      <li><a href="https://voicevox.hiroshiba.jp/" target="_blank">VOICEVOX</a> &middot; <span class="lic">Powered by VOICEVOX</span><br>
-        <span class="desc">Japanese neural TTS via
-        <a href="https://github.com/VOICEVOX/voicevox_core" target="_blank">voicevox_core</a> (MIT),
-        with voicevox_onnxruntime and the Open JTalk dictionary, all fetched from the official
-        source at runtime (not redistributed). Each character voice has its own terms; audio you
-        publish must credit the character as &ldquo;VOICEVOX:キャラクター名&rdquo;
-        (e.g. VOICEVOX:ずんだもん). The TTS popup shows and copies the exact credit.</span></li>
-      <li><a href="http://open-jtalk.sourceforge.net/" target="_blank">Open JTalk</a> &middot; <span class="lic">Modified BSD</span><br>
-        <span class="desc">Japanese pronunciation dictionary (VOICEVOX and Kokoro Japanese voices).</span></li>
-      <li>Windows voices &middot; <span class="lic">OS built-in</span> <span class="desc">accessed via
-        <a href="https://pypi.org/project/winsdk/" target="_blank">winsdk</a> (MIT); nothing bundled.</span></li>
-    </ul>
-
-    <div class="credits-head">Screen OCR</div>
-    <ul class="credits">
-      <li><a href="https://huggingface.co/PaddlePaddle" target="_blank">PP-OCRv6</a> models via
-        <a href="https://github.com/PaddlePaddle/PaddleOCR" target="_blank">PaddleOCR</a> &middot; <span class="lic">Apache-2.0</span><br>
-        <span class="desc">&copy; PaddlePaddle Authors. Text detection and recognition, run through ONNX Runtime.
-        Model weights download on install (not redistributed).</span></li>
-      <li><a href="https://github.com/microsoft/onnxruntime" target="_blank">ONNX Runtime</a> &middot; <span class="lic">MIT</span><br>
-        <span class="desc">&copy; Microsoft. Inference runtime (DirectML on a GPU, CPU otherwise).</span></li>
-      <li><a href="https://github.com/BoboTiG/python-mss" target="_blank">mss</a> &middot; <span class="lic">MIT</span> <span class="desc">(screen capture for the snip)</span></li>
-    </ul>
-
-    <div class="credits-head">Japanese dictionary</div>
-    <ul class="credits">
-      <li><a href="https://www.edrdg.org/jmdict/j_jmdict.html" target="_blank">JMdict</a> &middot; <span class="lic">CC BY-SA 4.0</span><br>
-        <span class="desc">&copy; <a href="https://www.edrdg.org/" target="_blank">EDRDG</a>, used under the
-        <a href="https://www.edrdg.org/edrdg/licence.html" target="_blank">EDRDG Licence</a> via
-        <a href="https://github.com/scriptin/jmdict-simplified" target="_blank">jmdict-simplified</a> (conversion: MIT).
-        Downloaded on install, not redistributed with this app.</span></li>
-      <li><a href="https://github.com/takuyaa/kuromoji.js" target="_blank">kuromoji.js</a> &middot; <span class="lic">Apache-2.0</span><br>
-        <span class="desc">&copy; Takuya Asano / Atilika Inc. Japanese word segmentation (in the browser), bundled with the
-        <b>mecab-ipadic</b> dictionary (&copy; Nara Institute of Science and Technology; ICOT Free Software terms).</span></li>
-    </ul>
-
-    <div class="credits-head">Application</div>
-    <ul class="credits">
-      <li><a href="https://fastapi.tiangolo.com/" target="_blank">FastAPI</a> &middot; <span class="lic">MIT</span></li>
-      <li><a href="https://www.uvicorn.org/" target="_blank">uvicorn</a> &middot; <span class="lic">BSD-3-Clause</span></li>
-      <li><a href="https://numpy.org/" target="_blank">NumPy</a> &middot; <span class="lic">BSD-3-Clause</span></li>
-      <li><a href="https://github.com/s0d3s/PyAudioWPatch" target="_blank">PyAudioWPatch</a> &middot; <span class="lic">Apache-2.0</span> <span class="desc">(WASAPI loopback capture)</span></li>
-      <li><a href="https://github.com/attwad/python-osc" target="_blank">python-osc</a> &middot; <span class="lic">Unlicense</span> <span class="desc">(VRChat OSC output)</span></li>
-      <li><a href="https://github.com/python-websockets/websockets" target="_blank">websockets</a> &middot; <span class="lic">BSD-3-Clause</span></li>
-      <li><a href="https://github.com/pytauri/pytauri" target="_blank">PyTauri</a> / <a href="https://tauri.app/" target="_blank">Tauri</a> &middot; <span class="lic">Apache-2.0 / MIT</span> <span class="desc">(desktop shell)</span></li>
-      <li><a href="https://github.com/astral-sh/uv" target="_blank">uv</a> &middot; <span class="lic">MIT / Apache-2.0</span> <span class="desc">(engine dependency installer)</span></li>
-      <li><a href="https://www.python.org/" target="_blank">CPython</a> &middot; <span class="lic">PSF License</span> <span class="desc">bundled via
-        <a href="https://github.com/astral-sh/python-build-standalone" target="_blank">python-build-standalone</a></span></li>
-    </ul>
-    <div id="about-update">
-      <button id="cfg-update-check">Check for updates</button>
-      <span id="cfg-update-status"></span>
-    </div>
-    </section>
-  </div>
-  <div id="config-footer">
-    <button id="cfg-save">Save</button>
-    <span id="cfg-status"></span>
-  </div>
-  </div>
-  <nav id="config-nav">
-    <button data-page="engine" class="active">Engine</button>
-    <button data-page="audio">Audio</button>
-    <button data-page="translation">Translation</button>
-    <button data-page="phrases">Phrases</button>
-    <button data-page="voices">Voices</button>
-    <button data-page="ocr">OCR</button>
-    <button data-page="lang">Dictionary</button>
-    <button data-page="about">About</button>
-  </nav>
-  </div>
-</div>
-<div id="config-backdrop"></div>
-
-
-<div id="wizard-backdrop">
-  <div id="wizard">
-    <div class="wizard-step active" id="wiz-step-engine">
-      <h2>Welcome to Live Transcription</h2>
-      <p class="wiz-sub">Live captions for your voice or your speaker audio, with optional
-      translation and VRChat chatbox output. First, pick a transcription engine.</p>
-      <div id="wiz-engines"></div>
-      <div class="wiz-actions">
-        <button id="wiz-skip" class="wiz-secondary">Skip setup</button>
-        <button id="wiz-install" class="wiz-primary">Install</button>
+      <div class="tr" id="tr-them" role="button" tabindex="0" aria-haspopup="dialog" aria-expanded="false" aria-label="Them transport settings">
+        <button class="runbtn" data-run="them" aria-label="Start or stop Them"><span class="tri"></span></button>
+        <div class="trbody"><span class="role">Them &middot; speaker</span><span class="eng" id="them-eng">&mdash;</span><span class="flow" id="them-flow"></span></div>
+        <span class="caret">&#8964;</span>
+        <span class="lvl"><span class="lvl-fill"></span><span class="lvl-gate"></span></span>
       </div>
     </div>
 
-    <div class="wizard-step" id="wiz-step-install">
-      <h2>Installing engine</h2>
-      <p class="wiz-sub">Downloading the engine runtime and model. This can take a few
-      minutes; it only happens once.</p>
-      <div id="wiz-progress">Starting...</div>
-      <div class="wiz-actions">
-        <button id="wiz-install-back" class="wiz-secondary" style="display:none;">Back</button>
-      </div>
+
+    <div class="drawer" id="drawer">
+
+      <div class="dcell" id="dc-you"><div class="inner">
+        <div class="frow src-row"><span class="fl">Source</span>
+          <div class="src-val"><select class="pick" data-cfg="device"></select></div></div>
+        <div class="frow eng-fg"><span class="fl">Engine</span><select class="pick" data-cfg="engine"></select></div>
+        <div class="frow mdl-fg"><span class="fl">Model</span><div class="mdl-val"><select class="pick" data-cfg="model"></select></div></div>
+        <div class="frow trow"><span class="fl">Language</span><div class="xlate">
+          <button class="xtoggle" data-cfg="translate" aria-pressed="true">On</button>
+          <span class="xpair"><select class="pick lang xsrc" data-cfg="src"></select><button class="swap" aria-label="Swap languages">&#8644;</button><select class="pick lang xtgt" data-cfg="tgt"></select></span>
+        </div></div>
+        <div class="frow dest"><span class="fl">Destinations</span><div class="dchips">
+          <button class="dst" data-d="osc" aria-pressed="false">OSC <span class="own">&middot; VRChat</span></button>
+          <button class="dst" data-d="tts" aria-pressed="false">TTS <span class="own">&middot; Auto-speak</span></button>
+        </div></div>
+      </div></div>
+
+      <div class="dcell" id="dc-them"><div class="inner">
+        <div class="frow src-row"><span class="fl">Source</span>
+          <div class="src-val"><select class="pick" data-cfg="device"></select>
+            <span class="dnote win-note" hidden>Windows transcribes &mdash; no engine or model to install. Language follows your Windows Live Captions setting.</span></div></div>
+        <div class="frow eng-fg"><span class="fl">Engine</span><select class="pick" data-cfg="engine"></select></div>
+        <div class="frow mdl-fg"><span class="fl">Model</span><div class="mdl-val"><select class="pick" data-cfg="model"></select></div></div>
+        <div class="frow trow"><span class="fl">Language</span><div class="xlate">
+          <button class="xtoggle" data-cfg="translate" aria-pressed="true">On</button>
+          <span class="xpair"><select class="pick lang xsrc" data-cfg="src"></select><button class="swap" aria-label="Swap languages">&#8644;</button><select class="pick lang xtgt" data-cfg="tgt"></select></span>
+        </div></div>
+        <div class="frow dest"><span class="fl">Destinations</span><div class="dchips">
+          <button class="dst" data-d="osc" aria-pressed="false">OSC <span class="own">&middot; VRChat</span></button>
+          <button class="dst" data-d="tts" aria-pressed="false">TTS <span class="own">&middot; Auto-speak</span></button>
+        </div></div>
+      </div></div>
     </div>
 
-    <div class="wizard-step" id="wiz-step-setup">
-      <h2>Almost done</h2>
-      <label class="config-label">Audio source</label>
-      <div class="source-toggle" id="wiz-source-toggle">
-        <button id="wiz-src-mic" class="active">Mic</button>
-        <button id="wiz-src-loopback">Speaker</button>
-      </div>
-      <select id="wiz-device"></select>
-      <label class="config-label" style="margin-top:6px;">Spoken language</label>
-      <select id="wiz-lang"></select>
-      <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:#aaa;margin-top:6px;cursor:pointer;">
-        <input type="checkbox" id="wiz-translate" style="cursor:pointer;"> Show translations
-      </label>
-      <select id="wiz-target" disabled></select>
-      <div class="wiz-actions">
-        <button id="wiz-finish" class="wiz-primary">Finish</button>
-      </div>
+
+    <div class="subbar">
+      <div class="grp"><span class="glbl">Show</span>
+        <button class="seg" data-f="all" aria-pressed="true">All</button>
+        <button class="seg" data-f="you" aria-pressed="false">You</button>
+        <button class="seg" data-f="them" aria-pressed="false">Them</button></div>
+      <div class="grp"><span class="glbl">View</span>
+        <button class="seg" data-v="list" aria-pressed="true">List</button>
+        <button class="seg" data-v="talk" aria-pressed="false">Conversation</button></div>
+      <div class="grp"><span class="glbl">Reading</span>
+        <button class="seg" data-r="off" aria-pressed="true">Off</button>
+        <button class="seg" data-r="furigana" aria-pressed="false">Furigana</button>
+        <button class="seg" data-r="romaji" aria-pressed="false">Romaji</button></div>
+      <span class="status"><span id="srcs">idle</span></span>
+      <button class="seg" id="btn-copyall" style="margin-left:16px;">Copy</button>
+      <button class="seg" id="btn-clear">Clear</button>
     </div>
-  </div>
-</div>
 
 
-<div id="tts-backdrop"></div>
-<div id="tts-panel">
-  <div id="tts-header">
-    <span>TTS</span>
-    <button id="tts-close" title="Close">✕</button>
-  </div>
-  <div id="tts-body">
-    
-    <div id="tts-install" style="display:none;">
-      <p class="tts-hint">No voices are installed yet. Add one in
-        <b>Settings → Voices</b> (Kokoro for English, VOICEVOX for Japanese).</p>
-      <button id="tts-open-voices" class="tts-primary">Open Settings → Voices</button>
+    <div id="current">
+      <div class="current idle" id="cur-line"><span class="who">Idle</span><span class="cap-o">Waiting for audio</span><span class="livetag">Live</span></div>
     </div>
-    
-    <div id="tts-starting" style="display:none;">
-      <p class="tts-hint" id="tts-starting-text">Starting voice engine…</p>
+
+
+    <div class="feed" id="feed" aria-live="polite"></div>
+
+
+    <div class="foot">
+      <span class="dot">&#9679;</span><span id="fstate">Idle</span>
+      <span>You <b id="fyou">&mdash;</b></span>
+      <span>Them <b id="fthem">&mdash;</b></span>
+      <a class="upd" id="upd" hidden></a>
+      <span class="r">Latency <b id="flat">&mdash;</b></span>
     </div>
-    
-    <div id="tts-form" style="display:none;">
-      <label class="tts-label">Text</label>
-      <textarea id="tts-text" placeholder="Type something to say…"></textarea>
-      <div class="tts-row">
-        <div style="flex:1;min-width:0;">
-          <label class="tts-label">Voice</label>
-          <select id="tts-voice"></select>
-        </div>
-        <div style="flex:1;min-width:0;" id="tts-style-wrap">
-          <label class="tts-label">Style</label>
-          <select id="tts-style"></select>
+
+
+    <div class="pop" id="pop"></div>
+
+
+    <div class="menu-backdrop" id="menu-backdrop"></div>
+
+
+    <div class="toasts" id="toasts"></div>
+
+
+    <div class="dlg-backdrop" id="dlg-backdrop"><div class="dlg" id="dlg" role="dialog" aria-modal="true"></div></div>
+
+
+    <div class="dlg-backdrop" id="dlp-backdrop"><div class="dlg" role="dialog" aria-modal="true" aria-label="Downloading">
+      <div class="dk">Downloading</div>
+      <h2 id="dlp-title">Model</h2>
+      <p class="dlp-sub" id="dlp-sub"></p>
+      <div class="track"><div class="fill" id="dlp-fill"></div></div>
+      <div class="dlp-row"><span class="dlp-pct" id="dlp-pct">0%</span><span class="dlp-size" id="dlp-size"></span></div>
+      <div class="dacts"><button class="sbtn" id="dlp-cancel">Cancel</button></div>
+    </div></div>
+
+
+    <div class="menu wide" id="cc-menu" role="dialog" aria-modal="true" aria-label="Captions overlay">
+      <div class="mt"><span>On-screen captions</span><button class="mx" data-close aria-label="Close">&times;</button></div>
+      <div class="mrow" id="cc-src-row"><span class="ml">Caption source<small>for the on-screen overlay</small></span>
+        <select class="pick" id="cc-src">
+          <option value="off">Off</option>
+          <option value="you">Microphone (You)</option>
+          <option value="them">Speaker (Them)</option>
+          <option value="win_captions" hidden>Windows 11 Live Captions</option>
+        </select></div>
+      <div class="mh" id="cc-src-note" hidden></div>
+      <div class="ccsec" id="cc-win-sec" hidden>
+        <div class="mrow" id="cc-win-manage" hidden><span class="ml">Live Captions pack</span>
+          <button class="sbtn" id="cc-win-btn">Install</button></div>
+        <div class="eprog" id="cc-win-prog" hidden style="margin-top:0;"></div>
+        <div id="cc-win-opts" hidden>
+          <div class="mrow"><span class="ml">Win11 target<small>language to translate into</small></span>
+            <select class="pick" id="cc-win-tgt"></select></div>
+          <div class="mrow"><span class="ml">Win11 translator<small>backend for these captions</small></span>
+            <select class="pick" id="cc-win-backend"></select></div>
+          <div class="mrow"><span class="ml">Log to transcript<small>keep these Windows captions in the main list too</small></span>
+            <button class="xtoggle" id="cc-win-transcript" aria-pressed="false">Off</button></div>
         </div>
       </div>
-      <label class="tts-label">Speed <span id="tts-speed-val" class="tts-dim">1.00×</span></label>
-      <input id="tts-speed" type="range" min="0.5" max="2" step="0.05" value="1">
-      
-      <div id="tts-credit" class="tts-credit" style="display:none;">
-        <span class="tts-credit-label">Credit required:</span>
-        <code id="tts-credit-text"></code>
-        <button id="tts-credit-copy" class="tts-secondary" title="Copy credit">Copy</button>
-        <a id="tts-credit-terms" href="#" target="_blank" rel="noopener">terms ↗</a>
-      </div>
-      <label class="tts-label">Output</label>
-      <select id="tts-device"></select>
-      <label class="tts-label">Monitor</label>
-      <select id="tts-monitor"></select>
-      <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:#ccc;cursor:pointer;margin-top:12px;">
-        <input type="checkbox" id="tts-passthru" style="cursor:pointer;" />
-        Pass my mic through to the cable
-      </label>
-      <div class="tts-dim" style="font-size:11px;line-height:1.5;margin-top:4px;">
-        Sends your real mic into the cable too, so VRChat hears your own voice
-        alongside the speech. Uses your transcription mic.
-      </div>
-      <label class="tts-label">Auto-TTS reads</label>
-      <select id="tts-speak-source">
-        <option value="original">Original line</option>
-        <option value="translation">Translation</option>
-      </select>
-      <div class="tts-actions">
-        <button id="tts-speak-btn" class="tts-primary">Play</button>
-        <button id="tts-stop-btn" class="tts-secondary" title="Stop TTS playback now">Stop</button>
-        <a id="tts-manage-voices" class="tts-link" href="#">Manage voices</a>
-        <span id="tts-status" class="tts-progress"></span>
+      <div class="mrow"><span class="ml">Blur translation<small>reveal on hover</small></span>
+        <button class="xtoggle" id="cc-blur" aria-pressed="false">Off</button></div>
+      <div class="mrow"><span class="ml">Color by part of speech<small>needs the dictionary</small></span>
+        <button class="xtoggle" id="cc-pos" aria-pressed="false">Off</button></div>
+      <div class="mrow"><span class="ml">Reading aid<small>furigana or romaji on words</small></span>
+        <select class="pick" id="cc-reading">
+          <option value="off">Off</option>
+          <option value="furigana">Furigana</option>
+          <option value="romaji">Romaji</option>
+        </select></div>
+      <div class="mh">A click-through bar over your game. Press <b>Alt+C</b> to unlock it (drag to move, click words to define), then <b>Alt+C</b> or click off it to lock again.</div>
+    </div>
+
+
+    <div class="menu wide" id="tts-menu" role="dialog" aria-modal="true" aria-label="Text to speech">
+      <div class="mt"><span>Text to speech</span><button class="mx" data-close aria-label="Close">&times;</button></div>
+
+      <div class="mh" id="tts-off" hidden>No voices installed yet. Add one in <b>Settings &rsaquo; Voices</b> (Kokoro for English, VOICEVOX for Japanese).</div>
+
+      <div class="mh" id="tts-starting" hidden>Starting voice engine&hellip;</div>
+
+      <div id="tts-body" hidden>
+        <textarea id="tts-input" class="tarea" placeholder="Type something to say&hellip;"></textarea>
+        <div class="mrow"><span class="ml">Voice</span><select class="pick" id="tts-voice"></select></div>
+        <div class="mrow" id="tts-style-wrap"><span class="ml">Style</span><select class="pick" id="tts-style"></select></div>
+        <div class="mrow"><span class="ml">Speed <small id="tts-speed-val">1.00&times;</small></span>
+          <input id="tts-speed" class="rng" type="range" min="0.5" max="2" step="0.05" value="1"></div>
+        <div class="credit" id="tts-credit" hidden>Credit: <code id="tts-credit-text"></code>
+          <button class="clnk" id="tts-credit-copy" type="button">Copy</button>
+          <a id="tts-credit-link" href="#" target="_blank" rel="noopener">terms &#8599;</a></div>
+        <div class="mrow sep"><span class="ml">Output<small>the cable VRChat listens to</small></span><select class="pick" id="tts-device"></select></div>
+        <div class="mrow"><span class="ml">Monitor<small>how you hear it too</small></span><select class="pick" id="tts-monitor"></select></div>
+        <div class="mrow"><span class="ml">Pass mic to cable<small>VRChat hears your real voice too</small></span>
+          <button class="xtoggle" id="tts-passthru" aria-pressed="false">Off</button></div>
+        <div class="mrow sep"><span class="ml">Auto reads<small>when a transport's TTS is on</small></span><select class="pick" id="tts-reads">
+          <option value="original">Original line</option><option value="translation">Translation</option></select></div>
+        <div class="say"><button id="tts-say">Play</button><button id="tts-stop">Stop</button>
+          <span class="tst" id="tts-status"></span></div>
       </div>
     </div>
-  </div>
-</div>
 
 
-<div id="captions-backdrop"></div>
-<div id="captions-panel">
-  <div id="captions-header">
-    <span>On-screen captions</span>
-    <button id="captions-close" title="Close">✕</button>
-  </div>
-  <div id="captions-body">
-    <p class="tts-hint" style="margin-top:14px;">Show this app's live captions in a floating bar over your game. It stays on top and lets your clicks pass through to the game.</p>
+    <div class="sset" id="settings-screen" hidden role="dialog" aria-modal="true" aria-label="Settings">
+     <div class="sset-card">
+      <div class="sset-head"><span class="sset-title">Settings</span><button class="mx" id="sset-close" aria-label="Close">&times;</button></div>
+      <div class="sset-body">
+        <nav class="snav" id="snav">
+          <button class="snav-b" data-sec="engines">Engines</button>
+          <button class="snav-b" data-sec="audio">Audio</button>
+          <button class="snav-b" data-sec="translation">Translation</button>
+          <button class="snav-b" data-sec="voices">Voices</button>
+          <button class="snav-b" data-sec="dictionary">Dictionary</button>
+          <button class="snav-b" data-sec="ocr">OCR</button>
+          <button class="snav-b" data-sec="phrases">Phrases</button>
+          <button class="snav-b" data-sec="about">About</button>
+        </nav>
+        <div class="spane" id="spane">
 
-    <label class="tts-label">Overlay</label>
-    <label class="cap-toggle">
-      <input type="checkbox" id="cap-show-toggle">
-      <span>Show captions overlay</span>
-    </label>
-    <label class="cap-toggle">
-      <input type="checkbox" id="cap-hover-toggle" checked>
-      <span>Hover a word to define it (Japanese)</span>
-    </label>
-    <label class="cap-toggle">
-      <input type="checkbox" id="cap-blur-toggle">
-      <span>Blur the translation until you hover it</span>
-    </label>
-    <p class="tts-hint" style="margin-bottom:0;">The bar is a click-through overlay: hover a word to define it while your clicks pass through to the game. Press <b style="color:#b3aaff;">Alt+C</b> to unlock it (drag to move, click words to define), then <b style="color:#b3aaff;">Alt+C</b>, <b style="color:#b3aaff;">Esc</b>, or click off it to lock again.</p>
-  </div>
-</div>
+          <section class="spage" data-sec="engines">
+            <h2 class="sh">Engines</h2>
+            <p class="snote">Speech-to-text engines and their models. Choose which engine each transport uses from its drawer; install them and manage model files here.</p>
+            <div id="set-eng-list" class="elist"><div class="snote">Loading&hellip;</div></div>
+            <div class="estore" id="set-eng-store"></div>
+          </section>
 
+          <section class="spage" data-sec="audio">
+            <h2 class="sh">Audio</h2>
+            <div class="srow col">
+              <div class="grow"><div class="sl">Mic noise gate<small>ignore microphone audio quieter than this</small></div>
+                <div class="sctl"><div class="gate-meter" title="Input level vs your gate. Start capture to see the live level, then drag the handle just above the background noise."><div class="gate-fill" id="gate-fill"></div><input type="range" id="set-gate" class="gate-slider" min="0" max="100" step="1"></div><span class="sval" id="set-gate-val"></span></div></div>
+              <div class="gwarn" id="set-gate-warn">too high can cut quiet speech and split captions, which hurts accuracy; leave at 0 (off) if unsure.</div></div>
+            <div class="srow"><div class="sl">Split long speech<small>force a line break after this many seconds</small></div>
+              <div class="sctl"><input type="range" id="set-phrase" class="rng" min="4" max="20" step="1"><span class="sval" id="set-phrase-val"></span></div></div>
+            <div class="srow"><div class="sl">Silence captions while self-muted<small>follows your VRChat OSC mute</small></div>
+              <button class="xtoggle" id="set-mute-sup" aria-pressed="false">Off</button></div>
+            <div class="srow" id="srow-perapp" hidden><div class="sl">Capture a specific program<small>adds per-app audio sources (e.g. a game) to the Them picker</small></div>
+              <button class="xtoggle" id="set-perapp" aria-pressed="false">Off</button></div>
+          </section>
 
-<div id="latency-hud" hidden></div>
+          <section class="spage" data-sec="translation">
+            <h2 class="sh">Translation</h2>
+            <p class="snote">Which service translates your captions.</p>
+            <div class="srow"><div class="sl">Backend</div>
+              <select class="pick" id="set-tbk">
+                <option value="google">Google (free, no key)</option>
+                <option value="deepl">DeepL</option>
+                <option value="lmstudio">LM Studio (local)</option>
+                <option value="ollama">Ollama (local)</option>
+                <option value="openai">OpenAI-compatible</option>
+                <option value="openrouter">OpenRouter</option>
+                <option value="libretranslate">LibreTranslate (local)</option>
+              </select></div>
 
-<div id="transcript-container">
-  <div id="main-zone">
-    <div id="active-zone"></div>
-    <div id="history-zone">
-      <div id="empty-state">
-        <div class="icon">🎙️</div>
-        <p>Press Start to begin transcription</p>
+            <div class="tbk" data-bk="google"><p class="snote">No setup needed. Uses Google's free translation endpoint.</p></div>
+
+            <div class="tbk" data-bk="deepl">
+              <div class="srow"><div class="sl">API URL</div><input class="sinp" data-cfg="deepl_api_url" type="text" placeholder="https://api.deepl.com/v2/translate"></div>
+              <div class="srow"><div class="sl">API key</div><input class="sinp" data-cfg="deepl_api_key" type="password" autocomplete="off"></div>
+            </div>
+
+            <div class="tbk" data-bk="lmstudio">
+              <div class="srow"><div class="sl">Server URL</div><input class="sinp" data-cfg="lmstudio_url" id="set-lms-url" type="text" placeholder="http://localhost:1234/api/v1"></div>
+              <div class="srow"><div class="sl">Model</div><div class="sctl"><select class="pick" data-cfg="lmstudio_model" id="set-lms-model"></select><button class="sbtn" id="set-lms-refresh">Refresh</button></div></div>
+              <div class="srow"><div class="sl">Temperature</div><input class="sinp num" data-cfg="lmstudio_temperature" type="number" min="0" max="2" step="0.1"></div>
+            </div>
+
+            <div class="tbk" data-bk="ollama">
+              <div class="srow"><div class="sl">Server URL</div><input class="sinp" data-cfg="ollama_url" type="text" placeholder="http://localhost:11434"></div>
+              <div class="srow"><div class="sl">Model</div><input class="sinp" data-cfg="ollama_model" type="text"></div>
+              <div class="srow"><div class="sl">Temperature</div><input class="sinp num" data-cfg="ollama_temperature" type="number" min="0" max="2" step="0.1"></div>
+            </div>
+
+            <div class="tbk" data-bk="openai">
+              <div class="srow"><div class="sl">Base URL</div><input class="sinp" data-cfg="openai_base_url" type="text" placeholder="https://api.openai.com/v1/chat/completions"></div>
+              <div class="srow"><div class="sl">API key</div><input class="sinp" data-cfg="openai_api_key" type="password" autocomplete="off"></div>
+              <div class="srow"><div class="sl">Model</div><input class="sinp" data-cfg="openai_model" type="text"></div>
+              <div class="srow"><div class="sl">Temperature</div><input class="sinp num" data-cfg="openai_temperature" type="number" min="0" max="2" step="0.1"></div>
+            </div>
+
+            <div class="tbk" data-bk="openrouter">
+              <div class="srow"><div class="sl">API key</div><input class="sinp" data-cfg="openrouter_api_key" type="password" autocomplete="off"></div>
+              <div class="srow"><div class="sl">Model</div><input class="sinp" data-cfg="openrouter_model" type="text" placeholder="e.g. anthropic/claude-3.5-sonnet"></div>
+              <div class="srow"><div class="sl">Temperature</div><input class="sinp num" data-cfg="openrouter_temperature" type="number" min="0" max="2" step="0.1"></div>
+            </div>
+
+            <div class="tbk" data-bk="libretranslate">
+              <div class="srow"><div class="sl">Server URL</div><input class="sinp" data-cfg="libretranslate_url" type="text" placeholder="http://localhost:5000/translate"></div>
+              <div class="srow"><div class="sl">API key<small>optional</small></div><input class="sinp" data-cfg="libretranslate_api_key" type="password" autocomplete="off"></div>
+            </div>
+
+            <div class="prompt-block" id="prompt-block">
+              <div class="phead">Prompt<small>sent to the model &middot; picking one makes it active</small></div>
+              <div class="pickrow">
+                <select class="pick" id="pset-pick"></select>
+                <button class="sbtn" id="pset-new" type="button">+ New</button>
+                <button class="sbtn warn" id="pset-del" type="button">Delete</button>
+              </div>
+              <textarea class="tarea pbox" id="pset-box" spellcheck="false"></textarea>
+              <div class="pmeta">
+                <span class="phint"><code>{language}</code> target language &middot; <code>{language_zh}</code> Chinese name (Hunyuan)</span>
+                <span id="pset-right"></span>
+              </div>
+            </div>
+          </section>
+
+          <section class="spage" data-sec="voices">
+            <h2 class="sh">Voices</h2>
+            <p class="snote">Text-to-speech packs: Kokoro for English, VOICEVOX for Japanese. Speak captions or type-to-speak from the TTS popup.</p>
+            <div id="set-tts-list"><div class="snote">Loading&hellip;</div></div>
+            <div id="set-tts-cat" hidden>
+              <div class="phead">Japanese voices<small>VOICEVOX characters</small></div>
+              <input class="sinp" id="set-tts-filter" type="text" placeholder="Filter characters&hellip;" style="width:100%;box-sizing:border-box;margin:9px 0 2px;">
+              <div id="set-tts-chars"></div>
+            </div>
+          </section>
+
+          <section class="spage" data-sec="dictionary">
+            <h2 class="sh">Dictionary</h2>
+            <p class="snote">Japanese click-to-define (JMdict). Click words in captions and OCR to see readings and meanings.</p>
+            <div class="srow"><div class="sl">Dictionary data<small>JMdict, ~63 MB</small></div>
+              <div class="sctl"><span class="eprog" id="set-lang-prog" hidden></span><button class="sbtn" id="set-lang-btn">&hellip;</button></div></div>
+            <div id="set-tok" hidden>
+              <div class="srow"><div class="sl">Word segmentation<small>how sentences are split for lookup</small></div>
+                <select class="pick" id="set-tok-sel">
+                  <option value="std">Standard (kuromoji)</option>
+                  <option value="hi">High accuracy (Sudachi)</option>
+                </select></div>
+              <div class="eprog" id="set-tok-prog" hidden></div>
+              <div class="srow" id="set-tok-remove-row" hidden><div class="sl">High-accuracy data<small>Sudachi, ~215 MB on disk</small></div>
+                <button class="sbtn warn" id="set-tok-remove">Remove</button></div>
+            </div>
+          </section>
+
+          <section class="spage" data-sec="ocr">
+            <h2 class="sh">Screen OCR</h2>
+            <p class="snote">Capture on-screen Japanese text with the Alt+S overlay, then define or translate it in place.</p>
+            <div class="srow"><div class="sl">OCR engine<small>PP-OCR, ~700 MB</small></div>
+              <div class="sctl"><span class="eprog" id="set-ocr-prog" hidden></span><button class="sbtn" id="set-ocr-btn">&hellip;</button></div></div>
+          </section>
+
+          <section class="spage" data-sec="phrases">
+            <h2 class="sh">Phrases</h2>
+            <div class="srow col"><div class="sl">Blocked phrases<small>one per line; these are dropped from transcripts (hallucination filter)</small></div>
+              <textarea id="set-blocked" class="tarea" rows="6"></textarea></div>
+            <div class="srow"><div class="sl">Discard non-English text<small>drops CJK / other-alphabet noise while the source language is English</small></div>
+              <button class="xtoggle" id="set-discard" aria-pressed="false">Off</button></div>
+          </section>
+
+          <section class="spage" data-sec="about">
+            <h2 class="sh">About</h2>
+            <div class="srow"><div class="sl">Version</div><span class="sval" id="set-version">&hellip;</span></div>
+            <div class="srow"><div class="sl">Updates<small id="set-update-note"></small></div>
+              <button class="sbtn" id="set-update-check">Check for updates</button></div>
+            <div class="srow"><div class="sl">Shortcut<small id="set-shortcut-note">Add a Pizza Captions shortcut to your Desktop</small></div>
+              <button class="sbtn" id="set-shortcut">Create shortcut</button></div>
+            <p class="snote">Pizza Captions. Built on open-source speech, translation, TTS, OCR, and dictionary components; see the project credits for full attributions.</p>
+          </section>
+
+        </div>
       </div>
+     </div>
+    </div>
+
+
+    <div class="wiz" id="wiz" hidden role="dialog" aria-modal="true" aria-label="Setup">
+     <div class="wiz-card">
+      <div class="wstep on" id="wiz-engine">
+        <div class="wiz-brand">Pizza Captions</div>
+        <h2 class="wiz-h">Welcome</h2>
+        <p class="wiz-sub">Live captions for your voice or your speaker audio, with optional
+          translation and VRChat chatbox output. First, choose a transcription engine.</p>
+        <div class="wlbl">Transcription engine</div>
+        <div class="weng" id="wiz-engines"></div>
+        <div class="wiz-act">
+          <button class="sbtn" id="wiz-skip">Skip for now</button>
+          <button class="sbtn primary grow" id="wiz-install">Install</button>
+        </div>
+      </div>
+
+      <div class="wstep" id="wiz-install-step">
+        <div class="wiz-brand">Pizza Captions</div>
+        <h2 class="wiz-h">Installing engine</h2>
+        <p class="wiz-sub">Downloading the engine runtime and model. This can take a few
+          minutes; it only happens once.</p>
+        <div class="wiz-prog" id="wiz-prog">Starting&hellip;</div>
+        <div class="wiz-act">
+          <button class="sbtn" id="wiz-install-back" hidden>Back</button>
+        </div>
+      </div>
+
+      <div class="wstep" id="wiz-setup">
+        <div class="wiz-brand">Pizza Captions</div>
+        <h2 class="wiz-h">Almost done</h2>
+        <p class="wiz-sub">Set up your microphone (the "You" transport). You can change any of
+          this later, and set up "Them" (speaker audio) from the transport strip.</p>
+        <div class="wiz-field">
+          <label for="wiz-device">Microphone</label>
+          <select class="pick" id="wiz-device"></select>
+        </div>
+        <div class="wiz-field">
+          <label for="wiz-lang">Spoken language</label>
+          <select class="pick" id="wiz-lang"></select>
+        </div>
+        <div class="wiz-xrow">
+          <span class="sl">Show translations</span>
+          <button class="xtoggle" id="wiz-translate" aria-pressed="true">On</button>
+        </div>
+        <div class="wiz-field">
+          <label for="wiz-target">Translate to</label>
+          <select class="pick" id="wiz-target"></select>
+        </div>
+        <div class="wlbl">Optional</div>
+        <p class="wiz-note">The dictionary downloads when you finish (about 63 MB). You can also add
+          it, and Screen OCR, any time from Settings.</p>
+        <div class="wiz-feat">
+          <div class="wiz-frow">
+            <div class="wiz-fl"><b>Japanese dictionary</b><small>Click any word in a caption to define it (~63 MB)</small></div>
+            <button class="xtoggle" id="wiz-feat-dict" aria-pressed="true">On</button>
+          </div>
+        </div>
+        <div class="wiz-act">
+          <button class="sbtn primary grow" id="wiz-finish">Finish</button>
+        </div>
+      </div>
+     </div>
     </div>
   </div>
-  <div id="raw-zone">
-    <div id="raw-zone-header">Raw stream</div>
-    <div id="raw-feed"></div>
-  </div>
-</div>
 
-<script src="/vendor/kuromoji/kuromoji.js"></script>
-<script src="/ocr-interact.js?v=50"></script>
-<script src="/app.js?v=41"></script>
+
+<script src="/jadict.js?v=59"></script>
+<script src="/app.js?v=96"></script>
 </body>
 </html>

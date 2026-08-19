@@ -17,6 +17,7 @@ from urllib import request as urllib_request
 
 import numpy as np
 import sherpa_onnx
+from vad_segment import VadSegmenter
 import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
@@ -30,6 +31,7 @@ VAD_MIN_SILENCE_S = float(os.environ.get("VAD_MIN_SILENCE_S", "0.5"))
 VAD_MIN_SPEECH_S = float(os.environ.get("VAD_MIN_SPEECH_S", "0.25"))
 VAD_MAX_SPEECH_S = float(os.environ.get("VAD_MAX_SPEECH_S", "20.0"))
 VAD_BUFFER_S = 60.0
+VAD_PREROLL_MS = float(os.environ.get("VAD_PREROLL_MS", "500"))
 VAD_WINDOW = 512
 
 FLUSH_PEAK = 1e-4
@@ -39,22 +41,20 @@ CONTEXT_TOKENS = int(os.environ.get("QWEN3_CONTEXT", "4096"))
 
 ASR_MARKER = "<asr_text>"
 
-_session_lock = asyncio.Lock()
+_MAX_SESSIONS = 2
+_session_sem = asyncio.Semaphore(_MAX_SESSIONS)
 _server_proc: subprocess.Popen | None = None
 _server_port: int = 0
 _models_dir: Path
 
-
 def _has_nvidia_gpu() -> bool:
     return shutil.which("nvidia-smi") is not None
-
 
 def _free_port() -> int:
     import socket
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
         return s.getsockname()[1]
-
 
 def _start_llama_server(models_dir: Path) -> tuple[subprocess.Popen, int]:
     exe = models_dir / "bin" / "llama-server.exe"
@@ -89,7 +89,6 @@ def _start_llama_server(models_dir: Path) -> tuple[subprocess.Popen, int]:
     proc.kill()
     raise RuntimeError("llama-server did not become healthy in 180s")
 
-
 def _wav_bytes(samples_f32: np.ndarray) -> bytes:
     pcm = np.clip(samples_f32, -1.0, 1.0)
     pcm = (pcm * 32767.0).astype(np.int16)
@@ -100,7 +99,6 @@ def _wav_bytes(samples_f32: np.ndarray) -> bytes:
         w.setframerate(SAMPLE_RATE)
         w.writeframes(pcm.tobytes())
     return buf.getvalue()
-
 
 def _transcribe(samples_f32: np.ndarray) -> str:
     if len(samples_f32) < SAMPLE_RATE * 0.05:
@@ -125,37 +123,19 @@ def _transcribe(samples_f32: np.ndarray) -> str:
         text = text.split(ASR_MARKER, 1)[1]
     return text.replace("</asr_text>", " ").strip()
 
-
-def _build_vad() -> sherpa_onnx.VoiceActivityDetector:
-    vad_path = _models_dir / "silero_vad.onnx"
-    if not vad_path.exists():
-        raise FileNotFoundError(f"Silero VAD model not found at {vad_path}")
-    cfg = sherpa_onnx.VadModelConfig()
-    cfg.silero_vad.model = str(vad_path)
-    cfg.silero_vad.threshold = VAD_THRESHOLD
-    cfg.silero_vad.min_silence_duration = VAD_MIN_SILENCE_S
-    cfg.silero_vad.min_speech_duration = VAD_MIN_SPEECH_S
-    cfg.silero_vad.window_size = VAD_WINDOW
-    cfg.silero_vad.max_speech_duration = VAD_MAX_SPEECH_S
-    cfg.sample_rate = SAMPLE_RATE
-    return sherpa_onnx.VoiceActivityDetector(cfg, buffer_size_in_seconds=VAD_BUFFER_S)
-
-
 app = FastAPI()
-
 
 @app.get("/health")
 def health():
     return {"status": "ok", "engine": "qwen3"}
 
-
 @app.websocket("/asr")
 async def asr(ws: WebSocket):
     await ws.accept()
-    if _session_lock.locked():
-        await ws.close(code=1013, reason="engine busy: one session at a time")
+    if _session_sem.locked():
+        await ws.close(code=1013, reason="engine busy: max sessions in use")
         return
-    async with _session_lock:
+    async with _session_sem:
         loop = asyncio.get_running_loop()
         result_queue: asyncio.Queue = asyncio.Queue()
         segment_queue: queue.Queue = queue.Queue()
@@ -199,16 +179,12 @@ async def asr(ws: WebSocket):
 
         sender = asyncio.create_task(send_results())
 
-        vad = _build_vad()
-        vad_buffer = np.empty(0, dtype=np.float32)
-        silence_since = None
-        flushed = False
-
-        def pop_segments():
-            while not vad.empty():
-                samples = np.array(vad.front.samples)
-                vad.pop()
-                segment_queue.put(samples)
+        seg = VadSegmenter(
+            _models_dir / "silero_vad.onnx",
+            sample_rate=SAMPLE_RATE, threshold=VAD_THRESHOLD,
+            min_silence_s=VAD_MIN_SILENCE_S, min_speech_s=VAD_MIN_SPEECH_S,
+            max_speech_s=VAD_MAX_SPEECH_S, window=VAD_WINDOW, buffer_s=VAD_BUFFER_S,
+            preroll_ms=VAD_PREROLL_MS, flush_peak=FLUSH_PEAK, flush_hold_s=FLUSH_HOLD)
 
         await ws.send_text(json.dumps({"type": "ready"}))
         logger.info("Session started")
@@ -216,40 +192,16 @@ async def asr(ws: WebSocket):
             while True:
                 data = await ws.receive_bytes()
                 pcm = np.frombuffer(data, dtype=np.int16).astype(np.float32) / 32768.0
-
-                peak = float(np.max(np.abs(pcm))) if len(pcm) else 0.0
-                now = time.monotonic()
-                if peak < FLUSH_PEAK:
-                    if not flushed:
-                        if silence_since is None:
-                            silence_since = now
-                        elif now - silence_since >= FLUSH_HOLD:
-                            vad.flush()
-                            pop_segments()
-                            vad = _build_vad()
-                            vad_buffer = np.empty(0, dtype=np.float32)
-                            silence_since = None
-                            flushed = True
-                else:
-                    silence_since = None
-                    flushed = False
-
-                vad_buffer = np.concatenate([vad_buffer, pcm])
-                while len(vad_buffer) >= VAD_WINDOW:
-                    vad.accept_waveform(vad_buffer[:VAD_WINDOW])
-                    vad_buffer = vad_buffer[VAD_WINDOW:]
-                pop_segments()
+                for utt in seg.feed(pcm):
+                    segment_queue.put(utt)
         except WebSocketDisconnect:
             logger.info("Session closed by client")
         except Exception as e:
             logger.error("Session error: %s", e)
         finally:
             try:
-                while len(vad_buffer) >= VAD_WINDOW:
-                    vad.accept_waveform(vad_buffer[:VAD_WINDOW])
-                    vad_buffer = vad_buffer[VAD_WINDOW:]
-                vad.flush()
-                pop_segments()
+                for utt in seg.drain():
+                    segment_queue.put(utt)
             except Exception as e:
                 logger.warning("VAD drain error: %s", e)
             segment_queue.put(None)
@@ -259,7 +211,6 @@ async def asr(ws: WebSocket):
                 await sender
             except Exception:
                 pass
-
 
 def main():
     global _models_dir, _server_proc, _server_port
@@ -290,7 +241,6 @@ def main():
                 _server_proc.wait(timeout=10)
             except subprocess.TimeoutExpired:
                 _server_proc.kill()
-
 
 if __name__ == "__main__":
     main()

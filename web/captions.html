@@ -9,7 +9,7 @@
     font-family: "Segoe UI", 'Meiryo', system-ui, sans-serif;
     -webkit-user-select: none; user-select: none; cursor: default;
   }
-  
+
   #bar {
     position: fixed; left: 50%; bottom: 6vh; transform: translateX(-50%);
     max-width: 80vw; min-width: 18vw; box-sizing: border-box;
@@ -18,9 +18,11 @@
     background: rgba(8, 10, 14, 0.88);
     box-shadow: 0 6px 26px rgba(0, 0, 0, 0.5);
     color: #fff; text-align: center;
+    transition: opacity 0.45s ease;
   }
   #bar.empty { display: none; }
-  #history { display: none; }   
+  #bar.idle { opacity: 0; }
+  #history { display: none; }
   .line { display: flex; flex-direction: column; gap: 1px; }
   .orig, .tr {
     line-height: 1.35; word-break: break-word;
@@ -35,30 +37,23 @@
 
   body.interactive #bar { outline: 1px dashed rgba(150,150,170,0.7); cursor: move; }
   body.interactive .jarun { cursor: pointer; }
-  
+
   body.interactive #bar.empty { display: flex; }
   .orig.placeholder { color: rgba(255,255,255,0.42); font-weight: 400; font-size: 20px; }
 
-  .jarun { cursor: pointer; border-radius: 3px; transition: background 0.08s; }
-  .jarun:hover { background: rgba(104,94,189,0.42); }
-  .jaword-active { background: rgba(104,94,189,0.42); border-radius: 3px; }
-  ::highlight(jascan) { background: rgba(104,94,189,0.42); }
-  .jadict-head ruby { ruby-align: center; }
-  .jadict-head rt { font-size: 0.5em; line-height: 1; color: #9a90e0; font-weight: 400; user-select: none; }
-  .jadict-pop { position: fixed; z-index: 200; max-width: 340px; max-height: 60vh; overflow-y: auto;
-    background: #1a1a1a; border: 1px solid #3a3a3a; border-radius: 8px; box-shadow: 0 8px 28px rgba(0,0,0,0.55);
-    padding: 12px 14px; font-size: 13px; line-height: 1.5; color: #ddd; cursor: default; text-align: left; }
-  .jadict-pop[hidden] { display: none; }
-  .jadict-entry + .jadict-entry { margin-top: 10px; padding-top: 10px; border-top: 1px solid #2a2a2a; }
-  .jadict-head { font-size: 17px; font-weight: 600; color: #fff; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
-  .jadict-reading { font-size: 13px; font-weight: 400; color: #9a90e0; }
-  .jadict-common { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: #fff; background: #685EBD; border-radius: 4px; padding: 1px 5px; }
-  .jadict-reasons { margin-top: 3px; font-size: 11px; color: #888; font-family: Consolas, monospace; }
-  .jadict-senses { margin: 7px 0 0; padding-left: 18px; }
-  .jadict-senses li { margin-bottom: 3px; }
-  .jadict-pos { color: #7f8; font-size: 11px; font-family: Consolas, monospace; }
-  .jadict-loading, .jadict-empty { margin-top: 6px; color: #888; font-size: 12px; }
+  body.pos-color .jarun[data-pos="動詞"]   { color: #ff9e80; }
+  body.pos-color .jarun[data-pos="名詞"],
+  body.pos-color .jarun[data-pos="代名詞"]  { color: #82b1ff; }
+  body.pos-color .jarun[data-pos="形容詞"]  { color: #ffe082; }
+  body.pos-color .jarun[data-pos="形状詞"]  { color: #ffcc80; }
+  body.pos-color .jarun[data-pos="副詞"]   { color: #b9f6ca; }
+
+  .orig ruby, .tr ruby { ruby-align: center; }
+  .orig rt, .tr rt { font-size: .5em; font-weight: 400; color: rgba(255,255,255,.72); line-height: 1; }
+  body.furi #active .orig, body.furi #active .tr { line-height: 1.9; }
+  body.roma .orig .jarun::after, body.roma .tr .jarun::after { content: " "; white-space: pre; }
 </style>
+<link rel="stylesheet" href="/common.css?v=1" />
 </head>
 <body>
   <div id="bar" class="empty">
@@ -66,56 +61,122 @@
     <div id="active"></div>
   </div>
   <script src="/vendor/kuromoji/kuromoji.js"></script>
-  <script src="/ocr-interact.js?v=50"></script>
+  <script src="/jadict.js?v=59"></script>
 <script>
 (function () {
   const bar = document.getElementById('bar');
   const activeEl = document.getElementById('active');
-  const KEEP = 20;          
+  const KEEP = 20;
 
   let lineCount = 0;
-  let history = [];         
+  let curIdx = 0;
+
+  let engCount = 0;
+  let history = [];
   let activeText = '';
-  let interactive = false;  
-  let hoverDefine = true;   
-  let blurTr = false;       
+  let shownChars = 0;
+  let curFullLen = 0;
+  let engineSignalsFinal = false;
+  let lineTr = {};
+  let interactive = false;
+  let hoverDefine = true;
+  let blurTr = false;
   let ws = null;
 
-  function currentLine() {
-    if (activeText) return { text: activeText, tr: '' };
-    if (history.length) return { text: history[history.length - 1].text, tr: history[history.length - 1].tr };
-    return { text: '', tr: '' };
+  const SILENCE_COMMIT_MS = 1250, SILENCE_FORCE_MARKED_MS = 8000, SOFT_LENGTH_LIMIT = 30;
+  const IDLE_HIDE_MS = 10000;
+  const SENTENCE_ENDERS = /[。．！？!?]/;
+  let silenceTimer = null, lastLineUpdateAt = 0;
+
+  let idleTimer = null;
+  function wake() {
+    bar.classList.remove('idle');
+    if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; }
+    if (!interactive) idleTimer = setTimeout(goIdle, IDLE_HIDE_MS);
+  }
+  function goIdle() {
+    idleTimer = null;
+    if (!interactive) bar.classList.add('idle');
+  }
+  function endsWithSentenceEnder(t) {
+    if (SENTENCE_ENDERS.test(t.slice(-2))) return true;
+    return t.slice(-1) === '.' && !/\d\.$/.test(t);
+  }
+  function resetSilenceTimer() {
+    if (silenceTimer) clearTimeout(silenceTimer);
+    lastLineUpdateAt = Date.now();
+    silenceTimer = setTimeout(onSilence, SILENCE_COMMIT_MS);
+  }
+  function onSilence() {
+    if (engineSignalsFinal && activeText && Date.now() - lastLineUpdateAt < SILENCE_FORCE_MARKED_MS) {
+      silenceTimer = setTimeout(onSilence, SILENCE_COMMIT_MS); return;
+    }
+    commit(); silenceTimer = null; render();
   }
 
-  function lineEl(text, tr) {
-    const wrap = document.createElement('div');
-    wrap.className = 'line';
-    const o = document.createElement('div');
-    o.className = 'orig';
-    o.textContent = text;
-    
-    if (window.jadict && window.jadict.enabled) window.jadict.renderJaText(o, text);
-    wrap.appendChild(o);
-    if (tr) {
-      const t = document.createElement('div');
-      t.className = 'tr';
-      t.textContent = tr;
-      wrap.appendChild(t);
+  function currentLine() {
+    if (activeText) return { text: activeText, idx: curIdx };
+    if (history.length) { const h = history[history.length - 1]; return { text: h.text, idx: h.idx }; }
+    return { text: '', idx: -1 };
+  }
+
+  const lineWrap = document.createElement('div');
+  lineWrap.className = 'line';
+  const origEl = document.createElement('div');
+  origEl.className = 'orig';
+  const trEl = document.createElement('div');
+  trEl.className = 'tr';
+  lineWrap.appendChild(origEl);
+  lineWrap.appendChild(trEl);
+  activeEl.appendChild(lineWrap);
+  let lastOrigKey = null, lastTr = null, segTimer = null;
+  const SEG_HOLD_MS = 350;
+
+  function hasJa(s) { return /[぀-ヿ㐀-鿿豈-﫿ｦ-ﾟ]/.test(s || ''); }
+
+  function readingOn() { return !!(window.jadict && window.jadict.readingMode && window.jadict.readingMode !== 'off'); }
+  function jaRenderOn() { return !!(window.jadict && (window.jadict.enabled || readingOn())); }
+
+  function setOrig(text, live) {
+    origEl.textContent = text;
+    if (segTimer) { clearTimeout(segTimer); segTimer = null; }
+    if (!jaRenderOn() || !hasJa(text)) return;
+    if (!live) {
+      window.jadict.renderJaText(origEl, text);
+    } else {
+      segTimer = setTimeout(function () {
+        if (origEl.textContent === text) window.jadict.renderJaText(origEl, text);
+      }, SEG_HOLD_MS);
     }
-    return wrap;
   }
 
   function render() {
-    activeEl.textContent = '';
-    const { text, tr } = currentLine();
-    if (text) {
-      activeEl.appendChild(lineEl(text, tr));
-    } else if (interactive) {
-      
-      const p = document.createElement('div');
-      p.className = 'line';
-      p.innerHTML = '<div class="orig placeholder">Captions will appear here</div>';
-      activeEl.appendChild(p);
+    const { text, idx } = currentLine();
+    const tr = lineTr[idx] || '';
+    const live = !!activeText;
+    const placeholder = !text && interactive;
+    const jaOn = jaRenderOn();
+
+    const origKey = text + '\x00' + (live ? 1 : 0) + '\x00' + (placeholder ? 1 : 0) + '\x00' + (jaOn ? 1 : 0);
+    if (origKey !== lastOrigKey) {
+      lastOrigKey = origKey;
+      if (text) {
+        origEl.classList.remove('placeholder');
+        setOrig(text, live);
+      } else if (placeholder) {
+        origEl.textContent = 'Captions will appear here';
+        origEl.classList.add('placeholder');
+      } else {
+        origEl.textContent = '';
+      }
+    }
+    const trShown = text ? tr : '';
+    if (trShown !== lastTr) {
+      lastTr = trShown;
+      trEl.textContent = trShown;
+
+      if (trShown && jaRenderOn() && hasJa(trShown)) window.jadict.renderJaText(trEl, trShown);
+      trEl.style.display = trShown ? '' : 'none';
     }
     bar.classList.toggle('empty', !text);
   }
@@ -123,39 +184,73 @@
   function commit() {
     const t = activeText.trim();
     if (t && (!history.length || history[history.length - 1].text !== t)) {
-      history.push({ text: t, tr: '' });
+      history.push({ idx: curIdx, text: t });
       if (history.length > KEEP) history = history.slice(-KEEP);
+      const oldest = history[0].idx;
+      for (const k of Object.keys(lineTr)) if (+k < oldest) delete lineTr[k];
+
+      if (!engineSignalsFinal) { lineCount++; curIdx = lineCount; }
     }
     activeText = '';
+    shownChars = curFullLen;
   }
 
   function onFrame(data) {
     if (!Array.isArray(data.lines)) return;
-    if (data.stream && data.stream !== 'listener') return;   
+    wake();
+
+    var s = data.stream;
+    if (s && s !== 'listener' && s !== 'win_captions' && s !== 'you' && s !== 'them') return;
     const visible = data.lines.filter(l => l.speaker !== -2 && (l.text || '').trim());
     const latest = visible[visible.length - 1];
     if (!latest) return;
-    const count = (data.line_count !== undefined) ? data.line_count : visible.length;
-    if (count !== lineCount) {
-      if (count > lineCount) commit();
-      lineCount = count;
+
+    engineSignalsFinal = data.line_count !== undefined;
+    const count = engineSignalsFinal ? data.line_count : visible.length;
+    if (count !== engCount) {
+      if (count > engCount) commit();
+      engCount = count; shownChars = 0;
+
+      if (engineSignalsFinal) curIdx = count;
     }
-    activeText = (latest.text || '').trim();
-    if (data.final) commit();
-    render();   
+
+    const fullText = (latest.text || '').trim();
+    if (fullText.length < shownChars) shownChars = 0;
+    curFullLen = fullText.length;
+    const newText = fullText.slice(shownChars).trim().replace(/^[。．？！?!]+/, '');
+    if (newText) activeText = newText;
+
+    if (data.final) {
+      commit();
+    } else if (newText) {
+      if (!engineSignalsFinal && newText.length >= SOFT_LENGTH_LIMIT && endsWithSentenceEnder(newText)) {
+        commit();
+      } else {
+        resetSilenceTimer();
+      }
+    }
+    render();
   }
 
   function onTranslation(data) {
-    const src = (data.source || '').trim();
     const tr = (data.text || '').trim();
-    if (!src || !tr) return;
-    for (let i = history.length - 1; i >= 0; i--) {
-      if (history[i].text === src && !history[i].tr) {
-        history[i].tr = tr;
-        render();
-        return;
+    if (!tr) return;
+    let idx;
+    if (typeof data.line === 'number') {
+      idx = data.line;
+    } else {
+      const src = (data.source || '').trim();
+      if (!src) return;
+      if (activeText && activeText.trim() === src) idx = curIdx;
+      else {
+        for (let i = history.length - 1; i >= 0; i--) {
+          if (history[i].text === src) { idx = history[i].idx; break; }
+        }
       }
+      if (idx === undefined) return;
     }
+    lineTr[idx] = tr;
+    render();
   }
 
   function connect() {
@@ -165,7 +260,7 @@
       try { data = JSON.parse(e.data); } catch (_) { return; }
       if (data && typeof data === 'object') {
         if (data.type === 'translation') { onTranslation(data); return; }
-        if (data.type) return;                 
+        if (data.type) return;
         onFrame(data);
       }
     });
@@ -177,12 +272,11 @@
   try { pos = JSON.parse(localStorage.getItem('captionsBarPos') || 'null'); } catch (_) {}
   function applyPos() {
     if (pos && typeof pos.x === 'number') {
-      
       bar.style.left = pos.x + 'px'; bar.style.top = pos.y + 'px';
       bar.style.bottom = 'auto'; bar.style.transform = 'translate(-50%, -50%)';
     }
   }
-  
+
   bar.addEventListener('pointerdown', function (e) {
     if (e.target.closest('.jarun')) return;
     e.preventDefault();
@@ -209,6 +303,7 @@
   window.__captionsInteract = function (on) {
     interactive = !!on;
     document.body.classList.toggle('interactive', interactive);
+    wake();
     render();
   };
 
@@ -216,6 +311,12 @@
     if (interactive) return;
     const dpr = window.devicePixelRatio || 1;
     const x = px / dpr, y = py / dpr;
+
+    if (!bar.classList.contains('idle')) {
+      const r = bar.getBoundingClientRect();
+      if (r.width && x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) wake();
+    }
+    if (bar.classList.contains('idle')) return;
     if (blurTr) {
       const el = document.elementFromPoint(x, y);
       document.body.classList.toggle('tr-reveal', !!(el && el.closest && el.closest('.tr')));
@@ -225,10 +326,21 @@
 
   window.__captionsHoverDefine = function (on) { hoverDefine = !!on; };
 
+  window.__captionsPosColor = function (on) { document.body.classList.toggle('pos-color', !!on); };
+
   window.__captionsBlur = function (on) {
     blurTr = !!on;
     document.body.classList.toggle('blur-tr', blurTr);
     if (!blurTr) document.body.classList.remove('tr-reveal');
+  };
+
+  window.__captionsReading = function (mode) {
+    if (window.jadict && window.jadict.setReadingMode) window.jadict.setReadingMode(mode);
+    var m = (window.jadict && window.jadict.readingMode) || 'off';
+    document.body.classList.toggle('furi', m === 'furigana');
+    document.body.classList.toggle('roma', m === 'romaji');
+    lastOrigKey = null; lastTr = null;
+    render();
   };
 
   function leaveInteract() {
@@ -251,10 +363,20 @@
   document.addEventListener('contextmenu', function (e) { e.preventDefault(); });
 
   window.__captionsReset = function () {
-    
-    history = []; activeText = ''; lineCount = 0;
+    history = []; activeText = ''; lineCount = 0; curIdx = 0; engCount = 0; lineTr = {};
+    shownChars = 0; curFullLen = 0;
+    if (silenceTimer) { clearTimeout(silenceTimer); silenceTimer = null; }
+    if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; }
+    bar.classList.remove('idle');
     render();
   };
+
+  fetch('/captions/overlay/state').then(function (r) { return r.json(); }).then(function (s) {
+    document.body.classList.toggle('pos-color', !!s.pos_color);
+    if (s.blur) { blurTr = true; document.body.classList.add('blur-tr'); }
+    if (s.hover === false) hoverDefine = false;
+    if (s.reading && s.reading !== 'off') window.__captionsReading(s.reading);
+  }).catch(function () {});
 
   applyPos();
   connect();

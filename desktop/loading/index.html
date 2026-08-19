@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<title>Live Transcription</title>
+<title>Pizza Captions</title>
 <style>
   html, body {
     margin: 0; height: 100%;
@@ -33,7 +33,7 @@
 <body>
 <div class="box">
   <div class="wave"><span></span><span></span><span></span><span></span><span></span></div>
-  <div id="msg">Starting Live Transcription...</div>
+  <div id="msg">Starting Pizza Captions...</div>
   <div id="err">Still starting... if this never finishes, check the console
   window for errors. They are also written to
   %APPDATA%\LiveTranscription\logs.</div>
@@ -43,7 +43,6 @@
   const t0 = Date.now();
   async function probe() {
     try {
-      
       await fetch(APP + '/engines', { mode: 'no-cors', cache: 'no-store' });
       location.replace(APP);
     } catch {

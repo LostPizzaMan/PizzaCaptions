@@ -1,12 +1,11 @@
 {
-  "id": "whisper",
+  "id": "whisper-batch",
   "kind": "asr",
-  "name": "Whisper (GPU, streaming)",
-  "description": "OpenAI Whisper (2022), streamed word-by-word with WhisperLiveKit.",
+  "name": "Whisper (GPU, accurate)",
+  "description": "OpenAI Whisper (2022), decoded whole-sentence with faster-whisper.",
   "protocol": 1,
   "entry": "engine_server.py",
   "python": "../../.venv/Scripts/python.exe",
-  "torch_cuda_index": "cu128",
   "languages": [
     "auto",
     "en",

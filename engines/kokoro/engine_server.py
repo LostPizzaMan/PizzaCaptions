@@ -26,7 +26,6 @@ _kokoro = None
 _synth_lock = threading.Lock()
 _models_dir: Path | None = None
 
-
 def _download(url: str, dest: Path) -> None:
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = dest.with_suffix(dest.suffix + ".part")
@@ -49,7 +48,6 @@ def _download(url: str, dest: Path) -> None:
     print(flush=True)
     tmp.replace(dest)
 
-
 def _ensure_model() -> tuple[Path, Path]:
     assert _models_dir is not None
     paths = {}
@@ -61,16 +59,13 @@ def _ensure_model() -> tuple[Path, Path]:
         paths[name] = p
     return paths["kokoro-v1.0.onnx"], paths["voices-v1.0.bin"]
 
-
 def _load_kokoro() -> None:
-
     global _kokoro
     from kokoro_onnx import Kokoro
     model_path, voices_path = _ensure_model()
     logger.info("Loading Kokoro model ...")
     _kokoro = Kokoro(str(model_path), str(voices_path))
     logger.info("Kokoro model ready.")
-
 
 def _synth(text: str, voice: str, speed: float) -> bytes:
     with _synth_lock:
@@ -80,14 +75,11 @@ def _synth(text: str, voice: str, speed: float) -> bytes:
     pcm = (np.clip(samples, -1.0, 1.0) * 32767.0).astype("<i2").tobytes()
     return pcm
 
-
 app = FastAPI()
-
 
 @app.get("/health")
 def health():
     return {"status": "ok", "engine": "kokoro"}
-
 
 @app.post("/speak")
 async def speak(req: Request):
@@ -113,7 +105,6 @@ async def speak(req: Request):
     return Response(content=pcm, media_type="application/octet-stream",
                     headers={"X-Sample-Rate": str(SAMPLE_RATE)})
 
-
 def main():
     global _models_dir
     parser = argparse.ArgumentParser()
@@ -127,7 +118,6 @@ def main():
     _load_kokoro()
     logger.info("Listening on 127.0.0.1:%d", args.port)
     uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="warning")
-
 
 if __name__ == "__main__":
     main()

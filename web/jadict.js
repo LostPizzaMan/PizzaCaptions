@@ -1,5 +1,4 @@
 (function () {
-  
   const CJK = /[぀-ヿ々ㇰ-ㇿ㐀-鿿豈-﫿ｦ-ﾟ]/;
   const hasJa = (s) => CJK.test(s);
   const WINDOW = 16;
@@ -61,6 +60,77 @@
       : esc(p.text))).join('');
   }
 
+  let readingMode = 'off';
+  const hasKanji = (s) => Array.from(s || '').some(isKanji);
+  const ROMA = {
+    あ: 'a', い: 'i', う: 'u', え: 'e', お: 'o',
+    か: 'ka', き: 'ki', く: 'ku', け: 'ke', こ: 'ko', が: 'ga', ぎ: 'gi', ぐ: 'gu', げ: 'ge', ご: 'go',
+    さ: 'sa', し: 'shi', す: 'su', せ: 'se', そ: 'so', ざ: 'za', じ: 'ji', ず: 'zu', ぜ: 'ze', ぞ: 'zo',
+    た: 'ta', ち: 'chi', つ: 'tsu', て: 'te', と: 'to', だ: 'da', ぢ: 'ji', づ: 'zu', で: 'de', ど: 'do',
+    な: 'na', に: 'ni', ぬ: 'nu', ね: 'ne', の: 'no',
+    は: 'ha', ひ: 'hi', ふ: 'fu', へ: 'he', ほ: 'ho', ば: 'ba', び: 'bi', ぶ: 'bu', べ: 'be', ぼ: 'bo',
+    ぱ: 'pa', ぴ: 'pi', ぷ: 'pu', ぺ: 'pe', ぽ: 'po',
+    ま: 'ma', み: 'mi', む: 'mu', め: 'me', も: 'mo', や: 'ya', ゆ: 'yu', よ: 'yo',
+    ら: 'ra', り: 'ri', る: 'ru', れ: 're', ろ: 'ro', わ: 'wa', ゐ: 'wi', ゑ: 'we', を: 'wo', ん: 'n',
+    ぁ: 'a', ぃ: 'i', ぅ: 'u', ぇ: 'e', ぉ: 'o', ゃ: 'ya', ゅ: 'yu', ょ: 'yo', ゔ: 'vu', ー: '',
+  };
+  const YOUON = { き: 'ky', ぎ: 'gy', し: 'sh', じ: 'j', ち: 'ch', ぢ: 'j', に: 'ny', ひ: 'hy', び: 'by', ぴ: 'py', み: 'my', り: 'ry' };
+  function romaSyllable(s, i) {
+    const c = s[i], n = s[i + 1];
+    if (YOUON[c] && (n === 'ゃ' || n === 'ゅ' || n === 'ょ')) {
+      return { r: YOUON[c] + (n === 'ゃ' ? 'a' : n === 'ゅ' ? 'u' : 'o'), len: 2 };
+    }
+    if (ROMA[c] !== undefined) return { r: ROMA[c], len: 1 };
+    return null;
+  }
+
+  function kanaToRomaji(kana) {
+    const s = kata2hira(kana || '');
+    let out = '', i = 0;
+    while (i < s.length) {
+      const c = s[i];
+      if (c === 'っ') {
+        const nx = romaSyllable(s, i + 1);
+        if (nx && /^[a-z]/.test(nx.r) && !/^[aeiou]/.test(nx.r)) out += (nx.r[0] === 'c' ? 't' : nx.r[0]);
+        i++; continue;
+      }
+      if (c === 'ー') { const m = out.match(/[aeiou]$/); if (m) out += m[0]; i++; continue; }
+      const syl = romaSyllable(s, i);
+      if (syl) { out += syl.r; i += syl.len; } else { out += c; i++; }
+    }
+    return out;
+  }
+
+  function applyReadingSpan(span) {
+    const surface = span.dataset.surface || span.textContent;
+    const reading = span.dataset.fullReading || '';
+    const hasK = span.dataset.hasKanji === '1';
+    if (readingMode === 'furigana') {
+      const html = (hasK && reading) ? furiganaHtml(surface, reading) : null;
+      if (html) span.innerHTML = html; else span.textContent = surface;
+    } else if (readingMode === 'hiragana') {
+      span.textContent = (hasK && reading) ? kata2hira(reading) : surface;
+    } else if (readingMode === 'romaji') {
+      span.textContent = kanaToRomaji(reading || surface);
+    } else {
+      span.textContent = surface;
+    }
+  }
+
+  function stampReading(span, surface, reads, surfaces) {
+    let gr = '', ok = true;
+    for (let k = 0; k < surfaces.length; k++) {
+      const rd = reads[k];
+      if (rd && rd !== '*') gr += rd;
+      else if (!hasKanji(surfaces[k])) gr += surfaces[k];
+      else { ok = false; break; }
+    }
+    span.dataset.surface = surface;
+    span.dataset.hasKanji = hasKanji(surface) ? '1' : '0';
+    if (ok && gr) span.dataset.fullReading = gr;
+    applyReadingSpan(span);
+  }
+
   let kuro = null, kuroBuilding = null;
   function ensureKuro() {
     if (kuro) return Promise.resolve(kuro);
@@ -74,6 +144,146 @@
       });
     });
     return kuroBuilding;
+  }
+
+  let _tokState = null, _tokAt = 0;
+  async function useHiAccuracy() {
+    const now = Date.now();
+    if (!_tokState || now - _tokAt > 2000) {
+      try { _tokState = await (await fetch('/lang/tokenizer')).json(); }
+      catch (e) { _tokState = { available: false, enabled: false }; }
+      _tokAt = now;
+    }
+    return !!_tokState.available && !!_tokState.enabled;
+  }
+
+  const SUDA_AUX_VERBS = new Set([
+    'みる', 'おく', 'くれる', 'あげる', 'もらう', 'いく', '行く', 'くる', '来る',
+    'くださる', 'ある', '有る', '始める', '始まる',
+  ]);
+  const SUDA_BREAK_PARTICLES = new Set(['し', 'けど', 'けれど', 'が', 'のに', 'ので', 'から', 'と', 'ながら']);
+  const SUDA_PROG = new Set(['いる', 'おる', 'てる', 'でる']);
+
+  function normBaseS(tok) {
+    let b = tok.base || tok.surface;
+    if ((tok.ctype || '').startsWith('サ行変格') && b.length > 2 && b.endsWith('ずる')) b = b.slice(0, -2) + 'じる';
+    return b;
+  }
+
+  function getRelatedTokensS(toks, idx) {
+    const head = toks[idx];
+    const out = [head];
+    if (head.pos !== '動詞' && head.pos !== '形容詞' && head.pos !== '形状詞') return out;
+    for (let i = idx + 1; i < toks.length; i++) {
+      const t = toks[i];
+      const ct = t.ctype || '', cf = t.cform || '';
+      if (t.pos === '助動詞') {
+        if (ct === '助動詞-ダ') break;
+        if (ct === '助動詞-デス' && !cf.startsWith('連用形')) break;
+        out.push(t); continue;
+      }
+
+      if (t.pos === '形容詞' && t.detail === '非自立可能' && t.base === 'ない') { out.push(t); continue; }
+
+      if (t.pos === '動詞' && (t.detail === '非自立可能' || t.detail === '接尾辞')
+          && !SUDA_AUX_VERBS.has(t.base)) { out.push(t); continue; }
+      if (t.pos === '助詞') {
+        if (t.detail === '接続助詞') {
+          if (SUDA_BREAK_PARTICLES.has(t.base) || SUDA_BREAK_PARTICLES.has(t.surface)) break;
+          out.push(t); continue;
+        }
+        if (t.detail === '副助詞' && (t.base === 'たり' || t.base === 'だり')) { out.push(t); continue; }
+        break;
+      }
+      break;
+    }
+    return out;
+  }
+
+  function getConjugationLabelS(related) {
+    const head = related[0];
+    if (related.length <= 1) {
+      const cf = head.cform || '';
+      if (cf.startsWith('命令')) return 'imperative';
+      if (cf === '意志推量形') return 'volitional';
+      if (cf.startsWith('連用形')) return 'continuative';
+      return '';
+    }
+    const sfx = related.slice(1);
+    const headGodan = (head.ctype || '').startsWith('五段')
+      || head.ctype === 'サ行変格' || head.ctype === 'カ行変格';
+    const has = (fn) => sfx.some(fn);
+
+    const causative = has((s) => s.pos === '助動詞' && (s.base === 'せる' || s.base === 'させる'));
+    const rareru    = has((s) => s.base === 'られる');
+    const reru      = has((s) => s.base === 'れる');
+    const progressive = has((s) => SUDA_PROG.has(s.base));
+    const teForm    = has((s) => s.pos === '助詞' && s.detail === '接続助詞' && (s.surface === 'て' || s.surface === 'で'));
+    const past      = has((s) => s.ctype === '助動詞-タ' && !(s.cform || '').startsWith('仮定形'));
+    const taCond    = has((s) => s.ctype === '助動詞-タ' &&  (s.cform || '').startsWith('仮定形'));
+    const polite    = has((s) => s.ctype === '助動詞-マス');
+    const negative  = has((s) => s.base === 'ない' || s.ctype === '助動詞-ヌ');
+    const negCond   = has((s) => s.base === 'ない' && (s.cform || '').startsWith('仮定形'));
+    const desider   = has((s) => s.ctype === '助動詞-タイ');
+    const volit     = has((s) => s.cform === '意志推量形');
+    const shimau    = has((s) => s.base === 'しまう');
+    const chau      = has((s) => s.base === 'ちゃう' || s.base === 'じゃう');
+    const chimau    = has((s) => s.base === 'ちまう' || s.base === 'じまう');
+    const excessive = has((s) => s.base === 'すぎる' || s.base === '過ぎる');
+    const tari      = has((s) => s.pos === '助詞' && (s.base === 'たり' || s.base === 'だり'));
+    const ba        = has((s) => s.pos === '助詞' && s.detail === '接続助詞' && s.surface === 'ば');
+    const nasaru    = has((s) => s.base === 'なさる');
+
+    const tags = [];
+    if (causative) tags.push('causative');
+    if (rareru) tags.push('potential or passive');
+    else if (reru) tags.push(headGodan ? 'passive' : 'potential');
+    if (progressive) tags.push('progressive');
+    if (shimau) tags.push('〜しまう');
+    if (chimau) tags.push('〜ちまう');
+    if (chau) tags.push('〜ちゃう');
+    if (excessive) tags.push('excessive');
+    if (desider) tags.push('〜たい');
+    if (polite) tags.push('polite');
+    if (negative) tags.push('negative');
+    if (past) tags.push('past');
+    if (volit) tags.push('volitional');
+    if (nasaru) tags.push('imperative');
+    if (tari) tags.push('〜たり');
+    if (teForm && tags.length === 0) tags.push('te-form');
+    if (taCond || ba || negCond) tags.push('conditional');
+    return tags.join(' · ');
+  }
+
+  function mergeCopulaNegS(toks) {
+    const out = [];
+    for (let i = 0; i < toks.length; i++) {
+      const t = toks[i], n = toks[i + 1];
+      if (n && (t.surface === 'じゃ' || t.surface === 'では') && n.base === 'ない') {
+        let surface = t.surface + n.surface, j = i + 1;
+        const p = toks[j + 1];
+        if (p && (p.surface === 'た' || p.surface === 'だ')) { surface += p.surface; j++; }
+        out.push({
+          surface, base: (t.surface === 'では') ? 'ではない' : 'じゃない', reading: '',
+          pos: '', detail: '', ctype: '', cform: '', unk: false,
+        });
+        i = j;
+        continue;
+      }
+      out.push(t);
+    }
+    return out;
+  }
+
+  async function fetchTokens(text) {
+    try {
+      const r = await fetch('/lang/tokenize', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      });
+      if (!r.ok) return null;
+      return (await r.json()).tokens || [];
+    } catch (e) { return null; }
   }
 
   const AUXILIARY_VERBS = new Set([
@@ -161,11 +371,32 @@
     }));
   }
 
+  function mergeCopulaNeg(raw) {
+    const out = [];
+    for (let i = 0; i < raw.length; i++) {
+      const t = raw[i], n = raw[i + 1];
+      if (n && (t.surface_form === 'じゃ' || t.surface_form === 'では') && n.basic_form === 'ない') {
+        let surface = t.surface_form + n.surface_form, j = i + 1;
+        const p = raw[j + 1];
+        if (p && (p.surface_form === 'た' || p.surface_form === 'だ')) { surface += p.surface_form; j++; }
+        out.push({
+          surface_form: surface, basic_form: (t.surface_form === 'では') ? 'ではない' : 'じゃない',
+          reading: '', pos: '', pos_detail_1: '', conjugated_form: '', conjugated_type: '', word_type: 'KNOWN',
+        });
+        i = j;
+        continue;
+      }
+      out.push(t);
+    }
+    return out;
+  }
+
   function renderKuro(el, raw) {
+    raw = mergeCopulaNeg(raw);
     const tokens = wrapTokens(raw);
     el.textContent = '';
-    el.dataset.jaline = '1';   
-    
+    el.dataset.jaline = '1';
+
     const bounds = new Set([0]);
     let acc = 0;
     for (const t of raw) { acc += t.surface_form.length; bounds.add(acc); }
@@ -181,11 +412,47 @@
         span.className = 'jarun';
         span.dataset.seg = '1';
         span.dataset.base = tokens[i].dataset.word;
-        span.dataset.pos = tokens[i].dataset.pos;       
+        span.dataset.pos = tokens[i].dataset.pos;
+        span.dataset.reading = tokens[i].dataset.reading;
         span.dataset.grammar = getConjugationLabel(related);
-        span.dataset.off = String(off);                 
+        span.dataset.off = String(off);
         if (tokens[i].dataset.wt === 'UNKNOWN') span.dataset.unk = '1';
         span.textContent = surface;
+        stampReading(span, surface, related.map((t) => t.dataset.reading), related.map((t) => t.textContent));
+        span.addEventListener('click', onKuroClick);
+        el.appendChild(span);
+      }
+      off += surface.length;
+      i += related.length;
+    }
+  }
+
+  function renderSudachi(el, toks) {
+    toks = mergeCopulaNegS(toks);
+    el.textContent = '';
+    el.dataset.jaline = '1';
+    const bounds = new Set([0]);
+    let acc = 0;
+    for (const t of toks) { acc += t.surface.length; bounds.add(acc); }
+    el._jaBounds = bounds;
+    let i = 0, off = 0;
+    while (i < toks.length) {
+      const related = getRelatedTokensS(toks, i);
+      const surface = related.map((t) => t.surface).join('');
+      if (!hasJa(surface)) {
+        el.appendChild(document.createTextNode(surface));
+      } else {
+        const span = document.createElement('span');
+        span.className = 'jarun';
+        span.dataset.seg = '1';
+        span.dataset.base = normBaseS(toks[i]);
+        span.dataset.pos = toks[i].pos || '';
+        span.dataset.reading = toks[i].reading || '';
+        span.dataset.grammar = getConjugationLabelS(related);
+        span.dataset.off = String(off);
+        if (toks[i].unk) span.dataset.unk = '1';
+        span.textContent = surface;
+        stampReading(span, surface, related.map((t) => t.reading), related.map((t) => t.surface));
         span.addEventListener('click', onKuroClick);
         el.appendChild(span);
       }
@@ -196,15 +463,16 @@
 
   function onKuroClick(e) {
     e.stopPropagation();
+    if (!enabled) return;
     const span = e.currentTarget;
     clearHighlight();
-    if (span.dataset.unk) { resolveUnknownClick(span); return; }   
+    if (span.dataset.unk) { resolveUnknownClick(span); return; }
     resolveKnownClick(span);
   }
 
   async function resolveUnknownClick(span) {
     const line = span.closest && span.closest('[data-jaline]');
-    if (!line || !kuro) {   
+    if (!line || !kuro) {
       span.classList.add('jaword-active'); activeRun = span;
       defineWord(span.dataset.base, span.dataset.grammar, span.dataset.pos, span);
       return;
@@ -223,7 +491,7 @@
     try {
       const r = await fetch('/lang/lookup', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ word: text.slice(start, start + WINDOW), base: span.dataset.base, pos: span.dataset.pos }),
+        body: JSON.stringify({ word: text.slice(start, start + WINDOW), base: span.dataset.base, pos: span.dataset.pos, reading: span.dataset.reading }),
       });
       if (!r.ok) throw new Error(r.status);
       j = await r.json();
@@ -259,7 +527,7 @@
     const line = span.closest && span.closest('[data-jaline]');
     span.classList.add('jaword-active');
     activeRun = span;
-    if (!line || !kuro) { defineWord(base, grammar, pos, span); return; }   
+    if (!line || !kuro) { defineWord(base, grammar, pos, span); return; }
     const start = +span.dataset.off || 0;
     const text = line.textContent;
     const kCover = span.textContent.length;
@@ -272,7 +540,7 @@
     try {
       const r = await fetch('/lang/lookup', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ word: text.slice(start, start + WINDOW), base, pos }),
+        body: JSON.stringify({ word: text.slice(start, start + WINDOW), base, pos, reading: span.dataset.reading }),
       });
       if (!r.ok) throw new Error(r.status);
       j = await r.json();
@@ -325,13 +593,19 @@
   }
 
   async function renderJaText(el, text) {
-    if (!enabled || !hasJa(text)) { el.textContent = text; return; }
+    if ((!enabled && readingMode === 'off') || !hasJa(text)) { el.textContent = text; return; }
     el.textContent = text;
     const token = String(++jaToken);
     el.dataset.jaTok = token;
+
+    if (await useHiAccuracy()) {
+      const raw = await fetchTokens(text);
+      if (el.dataset.jaTok !== token) return;
+      if (raw) { ensureKuro(); renderSudachi(el, raw); return; }
+    }
     const tk = await ensureKuro();
-    if (el.dataset.jaTok !== token) return;      
-    if (!tk) { renderRuns(el, text); return; }   
+    if (el.dataset.jaTok !== token) return;
+    if (!tk) { renderRuns(el, text); return; }
     renderKuro(el, tk.tokenize(text));
   }
 
@@ -384,7 +658,7 @@
   let scanOn = false;
 
   function caretGlobalOffset(line, node, off) {
-    if (node === line) {                 
+    if (node === line) {
       let acc = 0;
       for (let k = 0; k < off && k < line.childNodes.length; k++) acc += line.childNodes[k].textContent.length;
       return acc;
@@ -428,6 +702,7 @@
       }
     } catch {  }
   }
+
   function clearScanHighlight() {
     if (scanOn) { try { CSS.highlights.delete('jascan'); } catch {  } scanOn = false; }
   }
@@ -438,13 +713,13 @@
     if (!cr || !line.contains(cr.startContainer)) return;
     const text = line.textContent;
     const start = caretGlobalOffset(line, cr.startContainer, cr.startOffset);
-    if (start >= text.length || !CJK.test(text[start])) return;        
-    if (lastHover && lastHover.line === line && lastHover.start === start) return;  
+    if (start >= text.length || !CJK.test(text[start])) return;
+    if (lastHover && lastHover.line === line && lastHover.start === start) return;
     lastHover = { line, start };
 
     const raw = kuro.tokenize(text.slice(start));
     if (!raw.length) return;
-    const wt = raw[0].word_type;                       
+    const wt = raw[0].word_type;
     const related = getRelatedTokens(wrapTokens(raw), 0);
     const kCover = related.map((t) => t.textContent).join('').length;
     const kBase = (raw[0].basic_form && raw[0].basic_form !== '*') ? raw[0].basic_form : raw[0].surface_form;
@@ -456,14 +731,14 @@
     p.hidden = false;
     p.innerHTML = '<div class="jadict-loading">Looking up…</div>';
     clearHighlight();
-    setScanHighlight(rangeFor(line, start, start + kCover));   
+    setScanHighlight(rangeFor(line, start, start + kCover));
     place(rangeFor(line, start, start + kCover) || line);
 
     let j;
     try {
       const r = await fetch('/lang/lookup', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ word: text.slice(start, start + WINDOW), base: kBase, pos: kPos }),
+        body: JSON.stringify({ word: text.slice(start, start + WINDOW), base: kBase, pos: kPos, reading: raw[0].reading }),
       });
       if (!r.ok) throw new Error(r.status);
       j = await r.json();
@@ -477,7 +752,7 @@
     const bounds = line._jaBounds;
     const aligned = !!bounds && bounds.has(start) && bounds.has(start + Lj);
     const alignedEnd = !!bounds && bounds.has(start + Lj);
-    
+
     let crossesParticle = false;
     if (Lj > kCover) {
       let acc = 0;
@@ -487,7 +762,7 @@
         acc += t.surface_form.length;
       }
     }
-    
+
     const useJmdict = Lj > kCover && (j.results || []).length
       && ((wt !== 'UNKNOWN' && aligned && kPos !== '助詞')
           || (wt === 'UNKNOWN' && alignedEnd && !crossesParticle));
@@ -502,11 +777,11 @@
   }
 
   function onScanMove(e) {
-    if (!enabled || !e.shiftKey) return;
-    
+    if (!enabled || !e.shiftKey || readingMode !== 'off') return;
+
     const line = e.target.closest && e.target.closest('[data-jaline]');
     if (line && kuro) { scanFromCaret(e, line); return; }
-    
+
     const run = e.target.closest && e.target.closest('.jarun');
     if (!run || !run.dataset.text) return;
     const offset = offsetAt(e, run);
@@ -515,7 +790,7 @@
     const win = run.dataset.text.slice(offset, offset + WINDOW);
     if (win) {
       clearHighlight();
-      lastHover = { run, start: offset, end: offset + 1 };   
+      lastHover = { run, start: offset, end: offset + 1 };
       define(win, run, offset);
     }
   }
@@ -524,8 +799,8 @@
   function clearHighlight() {
     clearScanHighlight();
     if (!activeRun) return;
-    if (activeRun.dataset.seg) activeRun.classList.remove('jaword-active');  
-    else activeRun.textContent = activeRun.dataset.text;                     
+    if (activeRun.dataset.seg) activeRun.classList.remove('jaword-active');
+    else activeRun.textContent = activeRun.dataset.text;
     activeRun = null;
   }
 
@@ -597,20 +872,19 @@
     if (my !== reqId) return;
     let anchor = run;
     if (j.matched > 0) { activeRun = run; anchor = highlight(run, offset, j.matched); }
-    
+
     lastHover = { run, start: offset, end: offset + Math.max(1, j.matched || 0) };
     p.innerHTML = renderResults(j);
     place(anchor);
   }
 
   function renderEntry(res, idx, grammar) {
-    
     const furi = res.reading ? furiganaHtml(res.headword, res.reading) : null;
     const head = '<span class="jadict-word">' + (furi || esc(res.headword)) + '</span>';
     const reading = (!furi && res.reading && res.reading !== res.headword)
       ? '<span class="jadict-reading">' + esc(res.reading) + '</span>' : '';
     const common = res.common ? '<span class="jadict-common">common</span>' : '';
-    
+
     const reasons = (idx === 0 && grammar)
       ? '<div class="jadict-reasons">' + esc(grammar) + '</div>' : '';
     const senses = (res.senses || []).slice(0, 5).map((sn) => {
@@ -653,7 +927,12 @@
     onKuroClick({ currentTarget: span, stopPropagation() {} });
   }
 
-  window.jadict = { renderJaText, refresh: init, hoverAt, get enabled() { return enabled; } };
+  window.jadict = {
+    renderJaText, refresh: init, hoverAt, get enabled() { return enabled; },
+    get readingMode() { return readingMode; },
+    setReadingMode(m) { readingMode = (['furigana', 'hiragana', 'romaji'].indexOf(m) >= 0) ? m : 'off'; },
+    tokenizerChanged() { _tokState = null; },
+  };
 
   const LANGS = [
     ['en-US', 'English'], ['ja-JP', 'Japanese'], ['zh-CN', 'Chinese (Simplified)'],

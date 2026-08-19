@@ -25,9 +25,7 @@ TIERS = {
 _ocr = None
 _predict_lock = threading.Lock()
 
-
 def _providers() -> list[str]:
-
     try:
         import onnxruntime as ort
         avail = set(ort.get_available_providers())
@@ -38,9 +36,7 @@ def _providers() -> list[str]:
     logger.info("ONNX providers available=%s -> using %s", sorted(avail), picked)
     return picked
 
-
 def _load(models_dir: Path, tier: str):
-
     global _ocr
     if tier not in TIERS:
         raise ValueError(f"Unknown OCR tier {tier!r}; expected one of {list(TIERS)}")
@@ -66,9 +62,7 @@ def _load(models_dir: Path, tier: str):
     )
     logger.info("PP-OCRv6 %s ready (%d ONNX threads)", tier, OCR_THREADS)
 
-
 def _xywh(boxes, polys, i) -> list[float] | None:
-
     if boxes is not None and i < len(boxes):
         x0, y0, x1, y1 = (float(v) for v in boxes[i])
         return [x0, y0, x1 - x0, y1 - y0]
@@ -77,7 +71,6 @@ def _xywh(boxes, polys, i) -> list[float] | None:
         ys = [float(pt[1]) for pt in polys[i]]
         return [min(xs), min(ys), max(xs) - min(xs), max(ys) - min(ys)]
     return None
-
 
 def _recognize(img_path: str) -> list[dict]:
     lines: list[dict] = []
@@ -98,18 +91,14 @@ def _recognize(img_path: str) -> list[dict]:
             })
     return lines
 
-
 app = FastAPI()
-
 
 @app.get("/health")
 def health():
     return {"status": "ok" if _ocr is not None else "loading", "engine": "ocr"}
 
-
 @app.get("/capture")
 def capture():
-
     import mss
     import mss.tools
     with mss.MSS() as sct:
@@ -123,7 +112,6 @@ def capture():
         "left": mon["left"],
         "top": mon["top"],
     }
-
 
 @app.post("/ocr")
 async def ocr(request: Request):
@@ -150,7 +138,6 @@ async def ocr(request: Request):
         except OSError:
             pass
 
-
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, required=True)
@@ -162,7 +149,6 @@ def main():
     _load(Path(args.models_dir), args.model)
     logger.info("Listening on 127.0.0.1:%d", args.port)
     uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="warning")
-
 
 if __name__ == "__main__":
     main()
