@@ -8,7 +8,6 @@
   "python": "../../.venv/Scripts/python.exe",
   "torch_cuda_index": "cu128",
   "languages": [
-    "auto",
     "en",
     "ja",
     "zh",

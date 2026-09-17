@@ -78,7 +78,6 @@ def caption_source() -> str:
     return _source
 
 async def _translate_and_push(text: str, line: int, seq: int):
-    global _shown
     try:
         result = await _translate_module.translate_async(text, None, _target_language(), _backend())
         translated = ((result.get("translated") if isinstance(result, dict) else "") or "").strip()
@@ -164,7 +163,7 @@ async def _read_loop(port: int):
         pass
 
 async def _stop():
-    global _reader, _inflight, _seq, _shown, _last_queued
+    global _reader, _seq, _shown, _last_queued
     for _s, _ln, _t in _inflight:
         _t.cancel()
     _inflight.clear()
@@ -179,6 +178,9 @@ async def _stop():
             pass
         _reader = None
     await asyncio.to_thread(_mgr.stop)
+
+def stop_pack() -> None:
+    _mgr.stop()
 
 async def on_shutdown():
     global _source

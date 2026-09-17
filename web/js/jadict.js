@@ -1,4 +1,14 @@
-(function () {
+import * as sudachi from './conjugation/sudachi.js';
+import * as kuromoji from './conjugation/kuromoji.js';
+
+async function lookupWord(body) {
+  const r = await fetch('/lang/lookup', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  });
+  if (!r.ok) throw new Error((await r.text()) || r.status);
+  return r.json();
+}
+
   const CJK = /[぀-ヿ々ㇰ-ㇿ㐀-鿿豈-﫿ｦ-ﾟ]/;
   const hasJa = (s) => CJK.test(s);
   const WINDOW = 16;
@@ -157,124 +167,6 @@
     return !!_tokState.available && !!_tokState.enabled;
   }
 
-  const SUDA_AUX_VERBS = new Set([
-    'みる', 'おく', 'くれる', 'あげる', 'もらう', 'いく', '行く', 'くる', '来る',
-    'くださる', 'ある', '有る', '始める', '始まる',
-  ]);
-  const SUDA_BREAK_PARTICLES = new Set(['し', 'けど', 'けれど', 'が', 'のに', 'ので', 'から', 'と', 'ながら']);
-  const SUDA_PROG = new Set(['いる', 'おる', 'てる', 'でる']);
-
-  function normBaseS(tok) {
-    let b = tok.base || tok.surface;
-    if ((tok.ctype || '').startsWith('サ行変格') && b.length > 2 && b.endsWith('ずる')) b = b.slice(0, -2) + 'じる';
-    return b;
-  }
-
-  function getRelatedTokensS(toks, idx) {
-    const head = toks[idx];
-    const out = [head];
-    if (head.pos !== '動詞' && head.pos !== '形容詞' && head.pos !== '形状詞') return out;
-    for (let i = idx + 1; i < toks.length; i++) {
-      const t = toks[i];
-      const ct = t.ctype || '', cf = t.cform || '';
-      if (t.pos === '助動詞') {
-        if (ct === '助動詞-ダ') break;
-        if (ct === '助動詞-デス' && !cf.startsWith('連用形')) break;
-        out.push(t); continue;
-      }
-
-      if (t.pos === '形容詞' && t.detail === '非自立可能' && t.base === 'ない') { out.push(t); continue; }
-
-      if (t.pos === '動詞' && (t.detail === '非自立可能' || t.detail === '接尾辞')
-          && !SUDA_AUX_VERBS.has(t.base)) { out.push(t); continue; }
-      if (t.pos === '助詞') {
-        if (t.detail === '接続助詞') {
-          if (SUDA_BREAK_PARTICLES.has(t.base) || SUDA_BREAK_PARTICLES.has(t.surface)) break;
-          out.push(t); continue;
-        }
-        if (t.detail === '副助詞' && (t.base === 'たり' || t.base === 'だり')) { out.push(t); continue; }
-        break;
-      }
-      break;
-    }
-    return out;
-  }
-
-  function getConjugationLabelS(related) {
-    const head = related[0];
-    if (related.length <= 1) {
-      const cf = head.cform || '';
-      if (cf.startsWith('命令')) return 'imperative';
-      if (cf === '意志推量形') return 'volitional';
-      if (cf.startsWith('連用形')) return 'continuative';
-      return '';
-    }
-    const sfx = related.slice(1);
-    const headGodan = (head.ctype || '').startsWith('五段')
-      || head.ctype === 'サ行変格' || head.ctype === 'カ行変格';
-    const has = (fn) => sfx.some(fn);
-
-    const causative = has((s) => s.pos === '助動詞' && (s.base === 'せる' || s.base === 'させる'));
-    const rareru    = has((s) => s.base === 'られる');
-    const reru      = has((s) => s.base === 'れる');
-    const progressive = has((s) => SUDA_PROG.has(s.base));
-    const teForm    = has((s) => s.pos === '助詞' && s.detail === '接続助詞' && (s.surface === 'て' || s.surface === 'で'));
-    const past      = has((s) => s.ctype === '助動詞-タ' && !(s.cform || '').startsWith('仮定形'));
-    const taCond    = has((s) => s.ctype === '助動詞-タ' &&  (s.cform || '').startsWith('仮定形'));
-    const polite    = has((s) => s.ctype === '助動詞-マス');
-    const negative  = has((s) => s.base === 'ない' || s.ctype === '助動詞-ヌ');
-    const negCond   = has((s) => s.base === 'ない' && (s.cform || '').startsWith('仮定形'));
-    const desider   = has((s) => s.ctype === '助動詞-タイ');
-    const volit     = has((s) => s.cform === '意志推量形');
-    const shimau    = has((s) => s.base === 'しまう');
-    const chau      = has((s) => s.base === 'ちゃう' || s.base === 'じゃう');
-    const chimau    = has((s) => s.base === 'ちまう' || s.base === 'じまう');
-    const excessive = has((s) => s.base === 'すぎる' || s.base === '過ぎる');
-    const tari      = has((s) => s.pos === '助詞' && (s.base === 'たり' || s.base === 'だり'));
-    const ba        = has((s) => s.pos === '助詞' && s.detail === '接続助詞' && s.surface === 'ば');
-    const nasaru    = has((s) => s.base === 'なさる');
-
-    const tags = [];
-    if (causative) tags.push('causative');
-    if (rareru) tags.push('potential or passive');
-    else if (reru) tags.push(headGodan ? 'passive' : 'potential');
-    if (progressive) tags.push('progressive');
-    if (shimau) tags.push('〜しまう');
-    if (chimau) tags.push('〜ちまう');
-    if (chau) tags.push('〜ちゃう');
-    if (excessive) tags.push('excessive');
-    if (desider) tags.push('〜たい');
-    if (polite) tags.push('polite');
-    if (negative) tags.push('negative');
-    if (past) tags.push('past');
-    if (volit) tags.push('volitional');
-    if (nasaru) tags.push('imperative');
-    if (tari) tags.push('〜たり');
-    if (teForm && tags.length === 0) tags.push('te-form');
-    if (taCond || ba || negCond) tags.push('conditional');
-    return tags.join(' · ');
-  }
-
-  function mergeCopulaNegS(toks) {
-    const out = [];
-    for (let i = 0; i < toks.length; i++) {
-      const t = toks[i], n = toks[i + 1];
-      if (n && (t.surface === 'じゃ' || t.surface === 'では') && n.base === 'ない') {
-        let surface = t.surface + n.surface, j = i + 1;
-        const p = toks[j + 1];
-        if (p && (p.surface === 'た' || p.surface === 'だ')) { surface += p.surface; j++; }
-        out.push({
-          surface, base: (t.surface === 'では') ? 'ではない' : 'じゃない', reading: '',
-          pos: '', detail: '', ctype: '', cform: '', unk: false,
-        });
-        i = j;
-        continue;
-      }
-      out.push(t);
-    }
-    return out;
-  }
-
   async function fetchTokens(text) {
     try {
       const r = await fetch('/lang/tokenize', {
@@ -284,79 +176,6 @@
       if (!r.ok) return null;
       return (await r.json()).tokens || [];
     } catch (e) { return null; }
-  }
-
-  const AUXILIARY_VERBS = new Set([
-    'みる', 'おく', 'くれる', 'あげる', 'もらう', 'いく', '行く', 'くる', '来る',
-    'くださる', 'ある', '有る', '始める', '始まる',
-  ]);
-  const BREAK_PARTICLES = new Set(['し', 'けど', 'けれど', 'が', 'のに', 'ので', 'から', 'と', 'ながら']);
-
-  function getRelatedTokens(tokens, idx) {
-    const el = tokens[idx];
-    const related = [el];
-    const basePos = el.dataset.pos;
-    if (basePos !== '動詞' && basePos !== '形容詞' && basePos !== '形容動詞') return related;
-    for (let i = idx + 1; i < tokens.length; i++) {
-      const s = tokens[i];
-      const pos = s.dataset.pos;
-      const detail = s.dataset.posDetail || '';
-      if ((s.dataset.word === 'です' && s.dataset.conjugatedForm !== '連用形') || s.dataset.word === 'だ') break;
-      if (pos === '助詞' && detail === '接続助詞' && BREAK_PARTICLES.has(s.dataset.word)) break;
-      if (pos === '助動詞') { related.push(s); continue; }
-      if (pos === '動詞' && detail === '接尾') { related.push(s); continue; }
-      if (pos === '動詞' && detail === '非自立' && !AUXILIARY_VERBS.has(s.dataset.word)) { related.push(s); continue; }
-      if (pos === '助詞' && detail === '接続助詞') { related.push(s); continue; }
-      if (pos === '助詞' && detail === '並立助詞' && (s.dataset.word === 'たり' || s.dataset.word === 'だり')) { related.push(s); continue; }
-      break;
-    }
-    return related;
-  }
-
-  function getConjugationLabel(related) {
-    const baseConjForm = related[0].dataset.conjugatedForm || '';
-    if (related.length <= 1) {
-      if (baseConjForm.startsWith('命令')) return 'imperative';
-      if (baseConjForm === '連用形') return 'continuative';
-      if (baseConjForm === '体言接続特殊') return 'negative';
-      return '';
-    }
-    const suffixes = related.slice(1).map((s) => ({ word: s.dataset.word, surface: s.dataset.surface || s.textContent }));
-    const words = new Set(suffixes.map((s) => s.word));
-    const surfaces = new Set(suffixes.map((s) => s.surface));
-    const baseConjType = related[0].dataset.conjugatedType || '';
-    const isGodan = baseConjType.startsWith('五段') || baseConjType === 'サ変・スル' || baseConjType === 'カ変・クル';
-    const hasTeForm = surfaces.has('て') || surfaces.has('で');
-    const hasTa = (surfaces.has('た') || surfaces.has('だ')) && !surfaces.has('たら') && !surfaces.has('だら');
-    const hasPolite = words.has('ます');
-    const hasShimau = words.has('てしまう') || words.has('しまう');
-    const hasChimau = words.has('ちまう') || words.has('じまう');
-    const hasChau = words.has('ちゃう') || words.has('じゃう') || surfaces.has('じゃ');
-    const hasTari = words.has('たり') || words.has('だり');
-    const hasProgressiveAux = words.has('いる') || words.has('おる') || words.has('てる');
-    const hasTeContraction = hasTeForm && hasTa && !hasShimau && !hasChimau && !hasChau;
-    const hasTePolite = hasTeForm && hasPolite;
-    const hasProgressive = hasProgressiveAux || hasTeContraction || hasTePolite;
-    const tags = [];
-    if (words.has('せる') || words.has('させる')) tags.push('causative');
-    if (words.has('られる')) tags.push('potential or passive');
-    else if (words.has('れる')) tags.push(isGodan ? 'passive' : 'potential');
-    if (hasProgressive) tags.push('progressive');
-    if (hasShimau) tags.push('〜しまう');
-    if (hasChimau) tags.push('〜ちまう');
-    if (hasChau) tags.push('〜ちゃう');
-    if (words.has('すぎる')) tags.push('excessive');
-    if (words.has('たい')) tags.push('〜たい');
-    if (hasPolite) tags.push('polite');
-    if (words.has('ない') || words.has('ぬ') || words.has('ん')) tags.push('negative');
-    if (hasTa && (!hasTeForm || hasShimau || hasChimau || hasChau || hasProgressive)) tags.push('past');
-    if (words.has('う') || words.has('よう')) tags.push('volitional');
-    if (words.has('なさる')) tags.push('imperative');
-    if (hasTari) tags.push('〜たり');
-    if (hasTeForm && tags.length === 0) tags.push('te-form');
-    if (surfaces.has('たら') || surfaces.has('だら') || words.has('ば')
-        || suffixes.some((s) => s.word === 'ない' && (s.surface === 'なきゃ' || s.surface === 'なけれ'))) tags.push('conditional');
-    return tags.join(' · ');
   }
 
   function wrapTokens(raw) {
@@ -403,7 +222,7 @@
     el._jaBounds = bounds;
     let i = 0, off = 0;
     while (i < tokens.length) {
-      const related = getRelatedTokens(tokens, i);
+      const related = kuromoji.getRelatedTokens(tokens, i);
       const surface = related.map((t) => t.textContent).join('');
       if (!hasJa(surface)) {
         el.appendChild(document.createTextNode(surface));
@@ -414,7 +233,7 @@
         span.dataset.base = tokens[i].dataset.word;
         span.dataset.pos = tokens[i].dataset.pos;
         span.dataset.reading = tokens[i].dataset.reading;
-        span.dataset.grammar = getConjugationLabel(related);
+        span.dataset.grammar = kuromoji.getConjugationLabel(related);
         span.dataset.off = String(off);
         if (tokens[i].dataset.wt === 'UNKNOWN') span.dataset.unk = '1';
         span.textContent = surface;
@@ -428,7 +247,7 @@
   }
 
   function renderSudachi(el, toks) {
-    toks = mergeCopulaNegS(toks);
+    toks = sudachi.mergeCopulaNeg(toks);
     el.textContent = '';
     el.dataset.jaline = '1';
     const bounds = new Set([0]);
@@ -437,7 +256,7 @@
     el._jaBounds = bounds;
     let i = 0, off = 0;
     while (i < toks.length) {
-      const related = getRelatedTokensS(toks, i);
+      const related = sudachi.getRelatedTokens(toks, i);
       const surface = related.map((t) => t.surface).join('');
       if (!hasJa(surface)) {
         el.appendChild(document.createTextNode(surface));
@@ -445,10 +264,10 @@
         const span = document.createElement('span');
         span.className = 'jarun';
         span.dataset.seg = '1';
-        span.dataset.base = normBaseS(toks[i]);
+        span.dataset.base = sudachi.normBase(toks[i]);
         span.dataset.pos = toks[i].pos || '';
         span.dataset.reading = toks[i].reading || '';
-        span.dataset.grammar = getConjugationLabelS(related);
+        span.dataset.grammar = sudachi.getConjugationLabel(related);
         span.dataset.off = String(off);
         if (toks[i].unk) span.dataset.unk = '1';
         span.textContent = surface;
@@ -489,12 +308,7 @@
     place(span);
     let j;
     try {
-      const r = await fetch('/lang/lookup', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ word: text.slice(start, start + WINDOW), base: span.dataset.base, pos: span.dataset.pos, reading: span.dataset.reading }),
-      });
-      if (!r.ok) throw new Error(r.status);
-      j = await r.json();
+      j = await lookupWord({ word: text.slice(start, start + WINDOW), base: span.dataset.base, pos: span.dataset.pos, reading: span.dataset.reading });
     } catch {
       if (my === reqId) p.innerHTML = '<div class="jadict-empty">Lookup failed</div>';
       return;
@@ -538,12 +352,7 @@
     place(span);
     let j;
     try {
-      const r = await fetch('/lang/lookup', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ word: text.slice(start, start + WINDOW), base, pos, reading: span.dataset.reading }),
-      });
-      if (!r.ok) throw new Error(r.status);
-      j = await r.json();
+      j = await lookupWord({ word: text.slice(start, start + WINDOW), base, pos, reading: span.dataset.reading });
     } catch {
       if (my === reqId) p.innerHTML = '<div class="jadict-empty">Lookup failed</div>';
       return;
@@ -578,12 +387,7 @@
     place(anchor);
     let j;
     try {
-      const r = await fetch('/lang/lookup', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ word: base, pos: pos || '' }),
-      });
-      if (!r.ok) throw new Error((await r.text()) || r.status);
-      j = await r.json();
+      j = await lookupWord({ word: base, pos: pos || '' });
     } catch {
       if (my === reqId) { p.innerHTML = '<div class="jadict-empty">Lookup failed</div>'; place(anchor); }
       return;
@@ -720,11 +524,11 @@
     const raw = kuro.tokenize(text.slice(start));
     if (!raw.length) return;
     const wt = raw[0].word_type;
-    const related = getRelatedTokens(wrapTokens(raw), 0);
+    const related = kuromoji.getRelatedTokens(wrapTokens(raw), 0);
     const kCover = related.map((t) => t.textContent).join('').length;
     const kBase = (raw[0].basic_form && raw[0].basic_form !== '*') ? raw[0].basic_form : raw[0].surface_form;
     const kPos = raw[0].pos;
-    const grammar = getConjugationLabel(related);
+    const grammar = kuromoji.getConjugationLabel(related);
 
     const my = ++reqId;
     const p = ensurePop();
@@ -736,12 +540,7 @@
 
     let j;
     try {
-      const r = await fetch('/lang/lookup', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ word: text.slice(start, start + WINDOW), base: kBase, pos: kPos, reading: raw[0].reading }),
-      });
-      if (!r.ok) throw new Error(r.status);
-      j = await r.json();
+      j = await lookupWord({ word: text.slice(start, start + WINDOW), base: kBase, pos: kPos, reading: raw[0].reading });
     } catch {
       if (my === reqId) p.innerHTML = '<div class="jadict-empty">Lookup failed</div>';
       return;
@@ -859,12 +658,7 @@
     place(run);
     let j;
     try {
-      const r = await fetch('/lang/lookup', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ word: win }),
-      });
-      if (!r.ok) throw new Error((await r.text()) || r.status);
-      j = await r.json();
+      j = await lookupWord({ word: win });
     } catch {
       if (my === reqId) { p.innerHTML = '<div class="jadict-empty">Lookup failed</div>'; place(run); }
       return;
@@ -933,138 +727,3 @@
     setReadingMode(m) { readingMode = (['furigana', 'hiragana', 'romaji'].indexOf(m) >= 0) ? m : 'off'; },
     tokenizerChanged() { _tokState = null; },
   };
-
-  const LANGS = [
-    ['en-US', 'English'], ['ja-JP', 'Japanese'], ['zh-CN', 'Chinese (Simplified)'],
-    ['zh-TW', 'Chinese (Traditional)'], ['ko-KR', 'Korean'], ['fr-FR', 'French'],
-    ['es-ES', 'Spanish'], ['pt-BR', 'Portuguese'], ['ar-SA', 'Arabic'],
-    ['th-TH', 'Thai'], ['tr-TR', 'Turkish'], ['lv-LV', 'Latvian'], ['nl-NL', 'Dutch'],
-  ];
-
-  async function copyText(t) {
-    try { await navigator.clipboard.writeText(t); return true; }
-    catch {
-      const ta = document.createElement('textarea'); ta.value = t; document.body.appendChild(ta); ta.select();
-      const ok = document.execCommand('copy'); ta.remove(); return ok;
-    }
-  }
-
-  let tpop = null, tpopKey = 0, tSrcEl = null, tOutEl = null, tText = null, tAnchor = null;
-  let target = (() => { try { return localStorage.getItem('ocrTransTarget'); } catch { return null; } })() || 'en-US';
-
-  function ensureTpop() {
-    if (tpop) return tpop;
-    tpop = document.createElement('div');
-    tpop.className = 'ocr-tpop';
-    tpop.hidden = true;
-    const head = document.createElement('div'); head.className = 'ocr-tpop-head';
-    const lbl = document.createElement('span'); lbl.textContent = 'To';
-    const sel = document.createElement('select'); sel.className = 'ocr-tpop-lang';
-    LANGS.forEach(([bcp, name]) => {
-      const o = document.createElement('option'); o.value = bcp; o.textContent = name; sel.appendChild(o);
-    });
-    sel.value = target;
-    if (!sel.value) { sel.value = 'en-US'; target = 'en-US'; }
-    sel.addEventListener('change', () => {
-      target = sel.value;
-      try { localStorage.setItem('ocrTransTarget', target); } catch {  }
-      if (tText != null) doTranslate();
-    });
-    head.append(lbl, sel);
-    tSrcEl = document.createElement('div'); tSrcEl.className = 'ocr-tpop-src';
-    tOutEl = document.createElement('div'); tOutEl.className = 'ocr-tpop-out';
-    tpop.append(head, tSrcEl, tOutEl);
-    document.body.appendChild(tpop);
-    document.addEventListener('mousedown', (e) => {
-      if (tpop.hidden) return;
-      if (e.target.closest('.ocr-tpop') || e.target.closest('.ocr-menu')) return;
-      hideTrans();
-    });
-    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') hideTrans(); });
-    return tpop;
-  }
-
-  function hideTrans() { if (tpop) { tpop.hidden = true; tText = null; } }
-
-  function placeT(anchor) {
-    const r = anchor.getBoundingClientRect();
-    const pr = tpop.getBoundingClientRect();
-    const left = Math.max(8, Math.min(r.left, window.innerWidth - pr.width - 8));
-    let top = r.bottom + 6;
-    if (top + pr.height > window.innerHeight - 8) top = Math.max(8, r.top - pr.height - 6);
-    tpop.style.left = left + 'px';
-    tpop.style.top = top + 'px';
-  }
-
-  function translate(text, anchor) {
-    ensureTpop();
-    tText = text; tAnchor = anchor;
-    tpop.hidden = false;
-    tSrcEl.textContent = text;
-    doTranslate();
-  }
-
-  async function doTranslate() {
-    const text = tText, anchor = tAnchor;
-    if (text == null) return;
-    const my = ++tpopKey;
-    tOutEl.className = 'ocr-tpop-out';
-    tOutEl.textContent = 'Translating…';
-    placeT(anchor);
-    let j, ok;
-    try {
-      const res = await fetch('/translate', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text, sourceLanguage: '', targetLanguage: target }),
-      });
-      ok = res.ok;
-      j = await res.json().catch(() => ({}));
-    } catch (e) {
-      if (my === tpopKey) { tOutEl.className = 'ocr-tpop-out err'; tOutEl.textContent = e.message; placeT(anchor); }
-      return;
-    }
-    if (my !== tpopKey) return;
-    tOutEl.className = 'ocr-tpop-out' + (ok ? '' : ' err');
-    tOutEl.textContent = ok ? (j.translated || '(no translation)') : (j.detail || 'Translation failed');
-    placeT(anchor);
-  }
-
-  let menu = null, menuFor = null;
-
-  function ensureMenu() {
-    if (menu) return menu;
-    menu = document.createElement('div');
-    menu.className = 'ocr-menu';
-    menu.hidden = true;
-    const item = (label, fn) => {
-      const b = document.createElement('button');
-      b.type = 'button'; b.className = 'ocr-menu-item'; b.textContent = label;
-      b.addEventListener('click', () => { const f = menuFor; hideMenu(); if (f) fn(f); });
-      return b;
-    };
-    menu.append(
-      item('Copy', (f) => copyText(f.text)),
-      item('Translate', (f) => translate(f.text, f.anchor)),
-    );
-    document.body.appendChild(menu);
-    document.addEventListener('mousedown', (e) => {
-      if (!menu.hidden && !e.target.closest('.ocr-menu')) hideMenu();
-    });
-    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') hideMenu(); });
-    window.addEventListener('scroll', hideMenu, true);
-    return menu;
-  }
-
-  function hideMenu() { if (menu) menu.hidden = true; }
-
-  function lineMenu(x, y, text, anchor) {
-    const m = ensureMenu();
-    menuFor = { text, anchor };
-    m.hidden = false;
-    const mr = m.getBoundingClientRect();
-    m.style.left = Math.max(8, Math.min(x, window.innerWidth - mr.width - 8)) + 'px';
-    m.style.top = Math.max(8, Math.min(y, window.innerHeight - mr.height - 8)) + 'px';
-  }
-
-  window.ocrKit = { copyText, translate, lineMenu };
-})();

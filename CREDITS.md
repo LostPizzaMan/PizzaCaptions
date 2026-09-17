@@ -32,6 +32,12 @@ Pizza Captions is built on the following open-source projects and models.
   © 2023-2026 The ggml authors. The GGUF inference runtime behind the two engines
   above.
 
+- **[Nemotron 3.5 ASR Streaming](https://huggingface.co/nvidia/nemotron-3.5-asr-streaming-0.6b)**
+  models - OpenMDW-1.1. © NVIDIA Corporation.
+
+- **[NeMo-Speech.cpp](https://github.com/NVIDIA/NeMo-Speech.cpp)** - Apache-2.0
+  © NVIDIA Corporation. The ggml runtime behind the Nemotron engine.
+
 - **[Silero VAD](https://github.com/snakers4/silero-vad)** - MIT
   Voice activity detection.
 
@@ -54,6 +60,12 @@ are **not redistributed** with this app.
   publish must credit the character as `VOICEVOX:キャラクター名`
   (e.g. `VOICEVOX:ずんだもん`). The app shows and copies the exact credit for the
   voice in use.
+
+- **[Supertonic 3](https://huggingface.co/Supertone/supertonic-3)** - model weights
+  OpenRAIL-M, © Supertone Inc. Neural TTS voices in 31 languages, run via the
+  [supertonic](https://pypi.org/project/supertonic/) SDK (MIT) on
+  [ONNX Runtime](https://github.com/microsoft/onnxruntime) (MIT). The weights are
+  downloaded on first use and are **not redistributed** with this app.
 
 - **[Open JTalk](http://open-jtalk.sourceforge.net/)** - Modified BSD.
   Japanese pronunciation dictionary, used by the VOICEVOX and Kokoro Japanese voices.

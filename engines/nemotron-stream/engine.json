@@ -1,0 +1,42 @@
+{
+  "id": "nemotron-stream",
+  "kind": "asr",
+  "name": "Nemotron 3.5 ASR Streaming (CPU)",
+  "description": "NVIDIA Nemotron 3.5 (2026), a 0.6B multilingual recognizer streamed word-by-word.",
+  "protocol": 1,
+  "experimental": true,
+  "entry": "engine_server.py",
+  "python": "python/python.exe",
+  "languages": [
+    "en",
+    "ja",
+    "es",
+    "fr",
+    "de",
+    "it",
+    "pt",
+    "nl",
+    "ru",
+    "uk",
+    "pl",
+    "cs",
+    "sk",
+    "sl",
+    "bg",
+    "hr",
+    "ro",
+    "hu",
+    "el",
+    "da",
+    "sv",
+    "fi",
+    "et",
+    "lv",
+    "lt",
+    "mt"
+  ],
+  "models": [
+    "default"
+  ],
+  "default_model": "default"
+}

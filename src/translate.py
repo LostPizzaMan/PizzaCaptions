@@ -36,6 +36,7 @@ OLLAMA_MODEL       = ""
 OLLAMA_TEMPERATURE = 1.0
 
 _TIMEOUT = 8
+_LLM_TIMEOUT = 60
 
 _DEFAULT_SYSTEM_PROMPT = (
     "As an professional simultaneous interpreter with specialized knowledge in the all fields, "
@@ -174,7 +175,7 @@ def _clean(text: str) -> str:
 def _ipv4(url: str) -> str:
     return url.replace("://localhost:", "://127.0.0.1:").replace("://localhost/", "://127.0.0.1/")
 
-def _post(url: str, body: dict, headers: dict) -> dict:
+def _post(url: str, body: dict, headers: dict, timeout: int = _TIMEOUT) -> dict:
     url = _ipv4(url)
     req = urllib_request.Request(
         url,
@@ -182,7 +183,7 @@ def _post(url: str, body: dict, headers: dict) -> dict:
         headers={"Content-Type": "application/json", **headers},
     )
     try:
-        with urllib_request.urlopen(req, timeout=_TIMEOUT) as r:
+        with urllib_request.urlopen(req, timeout=timeout) as r:
             return json.loads(r.read())
     except urllib_request.HTTPError as e:
         detail = e.read().decode(errors="replace")
@@ -211,62 +212,63 @@ def _deepl(text: str, source: str | None, target: str | None) -> dict:
     data = _post(DEEPL_API_URL, {"text": [text], "target_lang": tgt}, {"Authorization": f"DeepL-Auth-Key {DEEPL_API_KEY}"})
     return {"translated": data["translations"][0]["text"]}
 
-def _openai(text: str, source: str | None, target: str | None) -> dict:
-    if not OPENAI_BASE_URL:
-        raise RuntimeError("OPENAI_BASE_URL is not set")
-    headers: dict = {}
-    if OPENAI_API_KEY:
-        headers["Authorization"] = f"Bearer {OPENAI_API_KEY}"
-    body: dict = {
-        "messages": [
-            {"role": "system", "content": _system_prompt(target)},
-            {"role": "user",   "content": _wrap(text)},
-        ],
-        "temperature":            OPENAI_TEMPERATURE,
-        "max_completion_tokens":  128,
-        "stream":                 False,
-    }
-    if OPENAI_MODEL:
-        body["model"] = OPENAI_MODEL
-    data = _post(OPENAI_BASE_URL, body, headers)
-    return {"translated": _clean(data["choices"][0]["message"]["content"])}
+_LLM_BACKENDS = ("lmstudio", "ollama", "openai", "openrouter")
 
-def _openrouter(text: str, source: str | None, target: str | None) -> dict:
-    if not OPENROUTER_API_KEY:
-        raise RuntimeError("OPENROUTER_API_KEY is not set")
-    data = _post(
-        "https://openrouter.ai/api/v1/chat/completions",
-        {
-            "model": OPENROUTER_MODEL,
-            "messages": [
-                {"role": "system", "content": _system_prompt(target)},
-                {"role": "user",   "content": _wrap(text)},
-            ],
-            "temperature": OPENROUTER_TEMPERATURE,
-            "max_tokens":  128,
-            "stream":      False,
-            "reasoning":   {"exclude": True, "enabled": False},
-        },
-        {"Authorization": f"Bearer {OPENROUTER_API_KEY}"},
-    )
-    return {"translated": _clean(data["choices"][0]["message"]["content"])}
+def _extract_choices(data: dict) -> str:
+    return data["choices"][0]["message"]["content"]
 
-def _lmstudio(text: str, source: str | None, target: str | None) -> dict:
-    data = _post(
-        f"{LMSTUDIO_URL.rstrip('/')}/chat",
-        {
-            "model":         LMSTUDIO_MODEL,
-            "system_prompt": _system_prompt(target),
-            "input":         _wrap(text),
-            "temperature":   LMSTUDIO_TEMPERATURE,
-        },
-        {},
-    )
+def _extract_lmstudio(data: dict) -> str:
     for item in data.get("output", []):
         if item.get("type") == "message":
-            return {"translated": _clean(item.get("content", ""))}
+            return item.get("content", "")
     detail = data.get("error", {}).get("message") if isinstance(data.get("error"), dict) else data.get("error")
     raise RuntimeError(f"LM Studio returned no translation: {detail or data}")
+
+def _llm_request(backend: str, text: str, target: str | None) -> tuple:
+    messages = [
+        {"role": "system", "content": _system_prompt(target)},
+        {"role": "user",   "content": _wrap(text)},
+    ]
+    if backend == "lmstudio":
+        return (f"{LMSTUDIO_URL.rstrip('/')}/chat",
+                {"model": LMSTUDIO_MODEL, "system_prompt": _system_prompt(target),
+                 "input": _wrap(text), "temperature": LMSTUDIO_TEMPERATURE},
+                {}, _extract_lmstudio)
+    if backend == "ollama":
+        return (f"{OLLAMA_URL.rstrip('/')}/api/chat",
+                {"model": OLLAMA_MODEL, "messages": messages, "temperature": OLLAMA_TEMPERATURE,
+                 "max_tokens": 128, "stream": False, "think": False},
+                {}, lambda d: d["message"]["content"])
+    if backend == "openai":
+        if not OPENAI_BASE_URL:
+            raise RuntimeError("OPENAI_BASE_URL is not set")
+        body: dict = {"messages": messages, "temperature": OPENAI_TEMPERATURE,
+                      "max_completion_tokens": 128, "stream": False}
+        if OPENAI_MODEL:
+            body["model"] = OPENAI_MODEL
+        headers = {"Authorization": f"Bearer {OPENAI_API_KEY}"} if OPENAI_API_KEY else {}
+        return (OPENAI_BASE_URL, body, headers, _extract_choices)
+    if backend == "openrouter":
+        if not OPENROUTER_API_KEY:
+            raise RuntimeError("OPENROUTER_API_KEY is not set")
+        return ("https://openrouter.ai/api/v1/chat/completions",
+                {"model": OPENROUTER_MODEL, "messages": messages, "temperature": OPENROUTER_TEMPERATURE,
+                 "max_tokens": 128, "stream": False,
+                 "reasoning": {"exclude": True, "enabled": False}},
+                {"Authorization": f"Bearer {OPENROUTER_API_KEY}"}, _extract_choices)
+    raise RuntimeError(f"not an LLM backend: {backend!r}")
+
+def _llm_sync(backend: str):
+    def fn(text: str, source: str | None, target: str | None) -> dict:
+        url, body, headers, extract = _llm_request(backend, text, target)
+        return {"translated": _clean(extract(_post(url, body, headers, _LLM_TIMEOUT)))}
+    fn.__name__ = f"_{backend}"
+    return fn
+
+_openai = _llm_sync("openai")
+_openrouter = _llm_sync("openrouter")
+_lmstudio = _llm_sync("lmstudio")
+_ollama = _llm_sync("ollama")
 
 def _libretranslate(text: str, source: str | None, target: str | None) -> dict:
     body: dict = {
@@ -278,24 +280,6 @@ def _libretranslate(text: str, source: str | None, target: str | None) -> dict:
     }
     data = _post(LIBRETRANSLATE_URL, body, {})
     return {"translated": data["translatedText"]}
-
-def _ollama(text: str, source: str | None, target: str | None) -> dict:
-    data = _post(
-        f"{OLLAMA_URL.rstrip('/')}/api/chat",
-        {
-            "model": OLLAMA_MODEL,
-            "messages": [
-                {"role": "system", "content": _system_prompt(target)},
-                {"role": "user",   "content": _wrap(text)},
-            ],
-            "temperature": OLLAMA_TEMPERATURE,
-            "max_tokens":  128,
-            "stream":      False,
-            "think":       False,
-        },
-        {},
-    )
-    return {"translated": _clean(data["message"]["content"])}
 
 _BACKENDS: dict[str, callable] = {
     "google":         _google,
@@ -316,9 +300,9 @@ def translate(text: str, source_language: str | None = None, target_language: st
         )
     return backend(text, source_language, target_language)
 
-async def _apost(url: str, body: dict, headers: dict) -> dict:
+async def _apost(url: str, body: dict, headers: dict, timeout: int = _TIMEOUT) -> dict:
     url = _ipv4(url)
-    async with _httpx.AsyncClient(timeout=_TIMEOUT) as client:
+    async with _httpx.AsyncClient(timeout=timeout) as client:
         r = await client.post(url, json=body, headers={"Content-Type": "application/json", **headers})
         if r.status_code >= 400:
             detail = r.text
@@ -333,51 +317,10 @@ async def translate_async(text: str, source_language: str | None = None,
                           target_language: str | None = None,
                           backend: str | None = None) -> dict:
     b = backend or TRANSLATION_BACKEND
-    if _httpx is None or b not in ("lmstudio", "ollama", "openai", "openrouter"):
+    if _httpx is None or b not in _LLM_BACKENDS:
         fn = _BACKENDS.get(b)
         if fn is None:
             raise RuntimeError(f"Unknown TRANSLATION_BACKEND: {b!r}. Choose from: {list(_BACKENDS)}")
         return await asyncio.to_thread(fn, text, source_language, target_language)
-    t, s = target_language, source_language
-    if b == "lmstudio":
-        data = await _apost(
-            f"{LMSTUDIO_URL.rstrip('/')}/chat",
-            {"model": LMSTUDIO_MODEL, "system_prompt": _system_prompt(t),
-             "input": _wrap(text), "temperature": LMSTUDIO_TEMPERATURE}, {})
-        for item in data.get("output", []):
-            if item.get("type") == "message":
-                return {"translated": _clean(item.get("content", ""))}
-        detail = data.get("error", {}).get("message") if isinstance(data.get("error"), dict) else data.get("error")
-        raise RuntimeError(f"LM Studio returned no translation: {detail or data}")
-    if b == "ollama":
-        data = await _apost(
-            f"{OLLAMA_URL.rstrip('/')}/api/chat",
-            {"model": OLLAMA_MODEL,
-             "messages": [{"role": "system", "content": _system_prompt(t)},
-                          {"role": "user", "content": _wrap(text)}],
-             "temperature": OLLAMA_TEMPERATURE, "max_tokens": 128, "stream": False, "think": False}, {})
-        return {"translated": _clean(data["message"]["content"])}
-    if b == "openai":
-        if not OPENAI_BASE_URL:
-            raise RuntimeError("OPENAI_BASE_URL is not set")
-        headers: dict = {}
-        if OPENAI_API_KEY:
-            headers["Authorization"] = f"Bearer {OPENAI_API_KEY}"
-        body: dict = {
-            "messages": [{"role": "system", "content": _system_prompt(t)},
-                         {"role": "user", "content": _wrap(text)}],
-            "temperature": OPENAI_TEMPERATURE, "max_completion_tokens": 128, "stream": False,
-        }
-        if OPENAI_MODEL:
-            body["model"] = OPENAI_MODEL
-        data = await _apost(OPENAI_BASE_URL, body, headers)
-        return {"translated": _clean(data["choices"][0]["message"]["content"])}
-    data = await _apost(
-        "https://openrouter.ai/api/v1/chat/completions",
-        {"model": OPENROUTER_MODEL,
-         "messages": [{"role": "system", "content": _system_prompt(t)},
-                      {"role": "user", "content": _wrap(text)}],
-         "temperature": OPENROUTER_TEMPERATURE, "max_tokens": 128, "stream": False,
-         "reasoning": {"exclude": True, "enabled": False}},
-        {"Authorization": f"Bearer {OPENROUTER_API_KEY}"})
-    return {"translated": _clean(data["choices"][0]["message"]["content"])}
+    url, body, headers, extract = _llm_request(b, text, target_language)
+    return {"translated": _clean(extract(await _apost(url, body, headers, _LLM_TIMEOUT)))}

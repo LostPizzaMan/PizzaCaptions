@@ -1,0 +1,16 @@
+export const state = {
+  running: { you: false, them: false },
+  filter: 'all',
+  overlaySource: 'off',
+  engineInfo: null,
+  allDevices: { mic: [], loopback: [] },
+  translateBackend: 'google',
+  ttsReads: 'original',
+  oscChatbox: 'original_first',
+  ttsVoice: '',
+  ttsDevice: '',
+  ccWinStatus: {},
+  ocrOverlayOn: false,
+  gateDragging: false,
+  lastMicLevel: 0,
+};

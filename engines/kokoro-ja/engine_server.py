@@ -42,8 +42,8 @@ def _download(url: str, dest: Path) -> None:
                 f.write(buf)
                 got += len(buf)
                 if total:
-                    print(f"\rDownloading {dest.name}: {got >> 20}/{total >> 20} MiB "
-                          f"({100 * got / total:4.1f}%)", end="", flush=True)
+                    print(f"\rDownloading {dest.name}: {got >> 20}MiB/{total >> 20}MiB "
+                          f"({100 * got // max(total, 1)}%)", end="", flush=True)
                 else:
                     print(f"\rDownloading {dest.name}: {got >> 20} MiB", end="", flush=True)
     print(flush=True)

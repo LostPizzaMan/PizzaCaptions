@@ -5,10 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Pizza Captions</title>
 
-<link rel="stylesheet" href="/common.css?v=1">
+<link rel="stylesheet" href="/css/common.css?v=1">
 <script src="/vendor/kuromoji/kuromoji.js"></script>
 
-<link rel="stylesheet" href="/styles.css?v=41">
+<link rel="stylesheet" href="/css/app.css?v=42">
 </head>
 <body>
 
@@ -168,6 +168,29 @@
           <option value="furigana">Furigana</option>
           <option value="romaji">Romaji</option>
         </select></div>
+      <div class="mrow"><span class="ml">Show<small>which lines the bar draws</small></span>
+        <select class="pick" id="cc-show">
+          <option value="both">Original + translation</option>
+          <option value="translation">Translation only</option>
+          <option value="original">Original only</option>
+        </select></div>
+      <div class="mrow"><span class="ml">Max lines<small>the whole bar never grows past this</small></span>
+        <select class="pick" id="cc-maxlines">
+          <option value="0">No limit</option>
+          <option value="1">1 line</option>
+          <option value="2">2 lines</option>
+          <option value="3" selected>3 lines</option>
+          <option value="4">4 lines</option>
+          <option value="5">5 lines</option>
+          <option value="6">6 lines</option>
+        </select></div>
+      <div class="mrow"><span class="ml">Text size<small>caption size on screen</small></span>
+        <select class="pick" id="cc-textsize">
+          <option value="0.8">Small</option>
+          <option value="1">Normal</option>
+          <option value="1.25">Large</option>
+          <option value="1.5">Extra large</option>
+        </select></div>
       <div class="mh">A click-through bar over your game. Press <b>Alt+C</b> to unlock it (drag to move, click words to define), then <b>Alt+C</b> or click off it to lock again.</div>
     </div>
 
@@ -208,6 +231,7 @@
           <button class="snav-b" data-sec="engines">Engines</button>
           <button class="snav-b" data-sec="audio">Audio</button>
           <button class="snav-b" data-sec="translation">Translation</button>
+          <button class="snav-b" data-sec="vrchat">VRChat</button>
           <button class="snav-b" data-sec="voices">Voices</button>
           <button class="snav-b" data-sec="dictionary">Dictionary</button>
           <button class="snav-b" data-sec="ocr">OCR</button>
@@ -231,8 +255,6 @@
               <div class="gwarn" id="set-gate-warn">too high can cut quiet speech and split captions, which hurts accuracy; leave at 0 (off) if unsure.</div></div>
             <div class="srow"><div class="sl">Split long speech<small>force a line break after this many seconds</small></div>
               <div class="sctl"><input type="range" id="set-phrase" class="rng" min="4" max="20" step="1"><span class="sval" id="set-phrase-val"></span></div></div>
-            <div class="srow"><div class="sl">Silence captions while self-muted<small>follows your VRChat OSC mute</small></div>
-              <button class="xtoggle" id="set-mute-sup" aria-pressed="false">Off</button></div>
             <div class="srow" id="srow-perapp" hidden><div class="sl">Capture a specific program<small>adds per-app audio sources (e.g. a game) to the Them picker</small></div>
               <button class="xtoggle" id="set-perapp" aria-pressed="false">Off</button></div>
           </section>
@@ -301,6 +323,20 @@
                 <span id="pset-right"></span>
               </div>
             </div>
+          </section>
+
+          <section class="spage" data-sec="vrchat">
+            <h2 class="sh">VRChat</h2>
+            <p class="snote">What the OSC chatbox shows for the transport that owns it.</p>
+            <div class="srow"><div class="sl">Chatbox shows<small>a translation only appears when Translate is on</small></div>
+              <select class="pick" id="set-osc-chatbox">
+                <option value="original_first">Original, then translation</option>
+                <option value="translation_first">Translation, then original</option>
+                <option value="original_only">Original only</option>
+                <option value="translation_only">Translation only</option>
+              </select></div>
+            <div class="srow"><div class="sl">Silence captions while self-muted<small>follows your VRChat OSC mute</small></div>
+              <button class="xtoggle" id="set-mute-sup" aria-pressed="false">Off</button></div>
           </section>
 
           <section class="spage" data-sec="voices">
@@ -427,7 +463,7 @@
   </div>
 
 
-<script src="/jadict.js?v=59"></script>
-<script src="/app.js?v=96"></script>
+<script type="module" src="/js/jadict.js?v=64"></script>
+<script type="module" src="/js/app.js?v=114"></script>
 </body>
 </html>

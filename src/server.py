@@ -1,8 +1,8 @@
 import asyncio
 import json
+import mimetypes
 import os
 import re
-import shutil
 import subprocess
 import sys
 import threading
@@ -10,16 +10,13 @@ import time
 import logging
 import webbrowser
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from urllib import error as urllib_error
 from urllib import request as urllib_request
 
-import numpy as np
 import pyaudiowpatch as pyaudio
 import uvicorn
-import websockets
 from fastapi import Body, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -27,26 +24,24 @@ from pythonosc.dispatcher import Dispatcher
 from pythonosc.osc_server import ThreadingOSCUDPServer
 from pythonosc.udp_client import SimpleUDPClient
 
+import capture
 import engine_install
 import jadict
+import models
 import ocr
 import procloop as _procloop
 import translate as _translate_module
 import tts
+import updates
 import win_captions
-from audio import _StreamResampler
-from engine_base import EngineManager, ENGINES_DIR
+from engine_base import CATALOG, ENGINES_DIR, UI_PORT
 from hallucinations import DEFAULT_BLOCKED_PHRASES
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
-APP_VERSION = "0.5.0"
+APP_VERSION = "0.6.0"
 
-SAMPLE_RATE = 16000
-CHUNK = 4096
-GATE_HOLD_S = 0.4
-UI_PORT = 3011
 VRC_OSC_IP = "127.0.0.1"
 VRC_OSC_PORT = 9000
 VRC_OSC_LISTEN_PORT = 9001
@@ -78,8 +73,6 @@ _win_captions_to_transcript = False
 _overlay_owner = "them"
 _pending_caption_prefs: dict = {}
 
-_engine_mgr = EngineManager(ENGINES_DIR)
-
 _control_clients: set[WebSocket] = set()
 _captions_clients: set[WebSocket] = set()
 
@@ -97,9 +90,6 @@ async def _broadcast_text(text: str, targets=None):
                 except Exception:
                     clients.discard(ws)
 
-async def _broadcast_control(msg: dict):
-    await _broadcast_text(json.dumps(msg))
-
 def _emit_ui(msg, targets=None) -> None:
     loop = _main_loop
     if loop is None:
@@ -110,16 +100,6 @@ def _emit_ui(msg, targets=None) -> None:
     except RuntimeError:
         pass
 
-def _tag_result(text: str, stream: str = "listener") -> str:
-    try:
-        obj = json.loads(text)
-    except (ValueError, TypeError):
-        return text
-    if not isinstance(obj, dict):
-        return text
-    obj["stream"] = stream
-    return json.dumps(obj)
-
 _CONFIG_FILE = APP_DATA_DIR / "config.json"
 
 _blocked_phrases: list[str] = []
@@ -129,37 +109,23 @@ _discard_other_alphabets = False
 _active_engine = "whisper"
 _engine_models: dict[str, str] = {}
 
-_source_mode = "mic"
 _mic_device_name = ""
 _loopback_device_name = ""
 
 _min_sound_level = 0.0
 
 _stt_max_phrase_s = 20.0
-_stt_engine_max_phrase = None
 
 _wizard_done = False
 
+_ui_state: dict = {}
+
 _suppress_osc_when_muted = True
 
+OSC_CHATBOX_MODES = ("original_first", "translation_first", "original_only", "translation_only")
+_osc_chatbox = "original_first"
+
 _program_capture_enabled = False
-
-def _model_for(engine_id: str) -> str:
-    chosen = _engine_models.get(engine_id)
-    if chosen:
-        return chosen
-    if engine_id == "whisper-batch":
-        return "large-v3-turbo" if engine_install._has_nvidia_gpu() else "small"
-    manifest = _engine_mgr.manifests.get(engine_id, {})
-    return manifest.get("default_model", "default")
-
-def _ensure_stt_engine():
-    global _stt_engine_max_phrase
-    if (_engine_mgr.running() and _active_engine != "whisper"
-            and _stt_engine_max_phrase != _stt_max_phrase_s):
-        _engine_mgr.stop()
-    _engine_mgr.ensure(_active_engine, _stt_language, _model_for(_active_engine))
-    _stt_engine_max_phrase = _stt_max_phrase_s
 
 _CONFIG_FIELDS = {
     "system_prompt_override":  "SYSTEM_PROMPT_OVERRIDE",
@@ -189,9 +155,9 @@ def _load_config():
     global _blocked_phrases, _discard_other_alphabets, _active_engine, _engine_models
     global _stt_language, _target_language, _win_captions_target, _win_captions_backend
     global _win_captions_to_transcript
-    global _source_mode, _mic_device_name, _loopback_device_name
+    global _mic_device_name, _loopback_device_name
     global _min_sound_level, _wizard_done, _suppress_osc_when_muted, _program_capture_enabled
-    global _stt_max_phrase_s
+    global _stt_max_phrase_s, _ui_state, _osc_chatbox
     if not _CONFIG_FILE.exists():
         return
     try:
@@ -210,7 +176,8 @@ def _load_config():
             _win_captions_backend = cfg["win_captions_backend"]
         if isinstance(cfg.get("win_captions_to_transcript"), bool):
             _win_captions_to_transcript = cfg["win_captions_to_transcript"]
-        for _k in ("captions_blur", "captions_pos_color", "captions_reading"):
+        for _k in ("captions_blur", "captions_pos_color", "captions_reading",
+                   "captions_show", "captions_max_lines", "captions_text_scale"):
             if _k in cfg:
                 _pending_caption_prefs[_k.replace("captions_", "")] = cfg[_k]
         raw = cfg.get("blocked_phrases", [])
@@ -218,12 +185,10 @@ def _load_config():
             _blocked_phrases = [str(p).strip() for p in raw if str(p).strip()]
         if isinstance(cfg.get("discard_other_alphabets"), bool):
             _discard_other_alphabets = cfg["discard_other_alphabets"]
-        if cfg.get("active_engine") in _engine_mgr.manifests:
+        if cfg.get("active_engine") in CATALOG.manifests:
             _active_engine = cfg["active_engine"]
         if isinstance(cfg.get("engine_models"), dict):
             _engine_models = {k: str(v) for k, v in cfg["engine_models"].items()}
-        if cfg.get("source_mode") in ("mic", "loopback"):
-            _source_mode = cfg["source_mode"]
         if isinstance(cfg.get("mic_device_name"), str):
             _mic_device_name = cfg["mic_device_name"]
         if isinstance(cfg.get("loopback_device_name"), str):
@@ -236,8 +201,12 @@ def _load_config():
             os.environ["VAD_MAX_SPEECH_S"] = str(_stt_max_phrase_s)
         if isinstance(cfg.get("wizard_done"), bool):
             _wizard_done = cfg["wizard_done"]
+        if isinstance(cfg.get("ui_state"), dict):
+            _ui_state = cfg["ui_state"]
         if isinstance(cfg.get("suppress_osc_when_muted"), bool):
             _suppress_osc_when_muted = cfg["suppress_osc_when_muted"]
+        if cfg.get("osc_chatbox") in OSC_CHATBOX_MODES:
+            _osc_chatbox = cfg["osc_chatbox"]
         if isinstance(cfg.get("program_capture_enabled"), bool):
             _program_capture_enabled = cfg["program_capture_enabled"]
         tts.load_config(cfg)
@@ -265,18 +234,19 @@ async def lifespan(app: FastAPI):
     yield
     _main_loop = None
     stop_osc_receiver()
-    stop_capture()
-    stop_dual()
+    capture.stop_all_slots()
     ocr.on_shutdown()
     jadict.on_shutdown()
     await win_captions.on_shutdown()
-    _engine_mgr.stop()
+    capture._engine_pool.stop_all()
     tts.on_shutdown()
 
 app = FastAPI(lifespan=lifespan)
 app.include_router(ocr.router)
 app.include_router(jadict.router)
 app.include_router(tts.router)
+app.include_router(updates.router)
+app.include_router(models.router)
 app.include_router(win_captions.router)
 win_captions.configure(
     broadcast=_broadcast_text,
@@ -362,6 +332,10 @@ def send_osc_typing(flag: bool):
         logger.warning("OSC typing error: %s", e)
 
 def _get_devices():
+    with capture._pa_lock:
+        return _enumerate_devices()
+
+def _enumerate_devices():
     p = pyaudio.PyAudio()
     mic_devices, loopback_devices = [], []
     seen_names = set()
@@ -385,345 +359,6 @@ def _get_devices():
     finally:
         p.terminate()
     return mic_devices, loopback_devices
-
-_capture_thread: threading.Thread | None = None
-_capture_stop = threading.Event()
-_last_device_index: int | None = None
-_last_program: "str | None" = None
-
-_pa_lock = threading.Lock()
-
-ENGINE_BUSY_CODE = 1013
-ENGINE_BUSY_ATTEMPTS = 8
-
-async def _open_engine_session(mgr: "EngineManager", stop_event: threading.Event, language: str | None = None):
-    delay = 0.3
-
-    def _asr_url(port: int) -> str:
-        u = f"ws://127.0.0.1:{port}/asr"
-        return f"{u}?language={language}" if language else u
-
-    url = _asr_url(mgr.port)
-    for attempt in range(1, ENGINE_BUSY_ATTEMPTS + 1):
-        ws = await websockets.connect(url, max_size=None)
-        try:
-            await ws.recv()
-            return ws
-        except websockets.ConnectionClosed as e:
-            await ws.close()
-            busy = e.rcvd is not None and e.rcvd.code == ENGINE_BUSY_CODE
-            if not busy or stop_event.is_set():
-                raise
-            logger.info("Engine still finishing the previous session, retrying (%d/%d)",
-                        attempt, ENGINE_BUSY_ATTEMPTS)
-            await asyncio.sleep(delay)
-            delay = min(delay * 1.5, 2.0)
-
-    if stop_event.is_set():
-        raise RuntimeError("engine busy: the previous session did not release in time")
-    logger.warning("Engine still holding a session after %d attempts; restarting it",
-                   ENGINE_BUSY_ATTEMPTS)
-    new_port = await asyncio.to_thread(mgr.restart)
-    if new_port is None:
-        raise RuntimeError("engine busy: the previous session did not release in time")
-    ws = await websockets.connect(_asr_url(new_port), max_size=None)
-    await ws.recv()
-    return ws
-
-def _capture_worker(device_index: int, stop_event: threading.Event, mgr: "EngineManager",
-                    stream_tag: str = "listener", language: str | None = None,
-                    is_mic: bool = True, program: "str | None" = None):
-    async def run():
-        p = None
-        stream = None
-        engine_ws = None
-        try:
-            if program:
-                pid = _procloop.resolve_pid(program)
-                if pid is None:
-                    raise RuntimeError(f"Program not running: {program}")
-                stream = _procloop.ProcLoopSource(pid)
-                sample_rate = SAMPLE_RATE
-                num_channels = 1
-                logger.info("Capture: program %s (pid %d) via procloop", program, pid)
-            else:
-                with _pa_lock:
-                    p = pyaudio.PyAudio()
-                    device_info = p.get_device_info_by_index(device_index)
-                    sample_rate = int(device_info["defaultSampleRate"])
-                    num_channels = device_info["maxInputChannels"] or 1
-                    stream = p.open(
-                        format=pyaudio.paInt16,
-                        channels=num_channels,
-                        rate=sample_rate,
-                        input=True,
-                        input_device_index=device_index,
-                        frames_per_buffer=CHUNK,
-                    )
-                logger.info("Capture: %s @ %dHz ch=%d", device_info["name"], sample_rate, num_channels)
-
-            engine_ws = await _open_engine_session(mgr, stop_event, language)
-
-            _emit_ui({"type": "config", "useAudioWorklet": True, "stream": stream_tag})
-
-            resampler = _StreamResampler(sample_rate, SAMPLE_RATE) if sample_rate != SAMPLE_RATE else None
-
-            async def send_audio():
-                last_loud = time.monotonic()
-                while not stop_event.is_set():
-                    data = await asyncio.get_event_loop().run_in_executor(
-                        None, lambda: stream.read(CHUNK, exception_on_overflow=False)
-                    )
-                    audio = np.frombuffer(data, dtype=np.int16).astype(np.float32)
-                    if num_channels > 1:
-                        audio = audio.reshape(-1, num_channels).mean(axis=1)
-
-                    rms = float(np.sqrt(np.mean((audio / 32768.0) ** 2))) if len(audio) else 0.0
-                    level = max(0.0, min(1.0, 1.0 + 20.0 * float(np.log10(rms + 1e-9)) / 60.0))
-                    threshold = _min_sound_level if is_mic else 0.0
-                    now = time.monotonic()
-                    if threshold <= 0 or level >= threshold:
-                        last_loud = now
-                    gated = threshold > 0 and (now - last_loud) >= GATE_HOLD_S
-                    if gated:
-                        audio = np.zeros_like(audio)
-                    _emit_ui({"type": "audio_level", "level": round(level, 3), "gated": gated, "stream": stream_tag})
-
-                    if resampler is not None:
-                        audio = resampler.process(audio)
-                        if not len(audio):
-                            continue
-                    await engine_ws.send(np.clip(np.rint(audio), -32768, 32767).astype(np.int16).tobytes())
-
-            async def recv_results():
-                async for message in engine_ws:
-                    if stop_event.is_set():
-                        break
-                    if isinstance(message, bytes):
-                        continue
-                    overlay_ok = (_captions_overlay.is_shown()
-                                  and win_captions.caption_source() == "current"
-                                  and stream_tag in ("listener", _overlay_owner))
-                    _emit_ui(_tag_result(message, stream_tag),
-                             None if overlay_ok else (_control_clients,))
-
-            recv_task = asyncio.create_task(recv_results())
-            try:
-                await send_audio()
-            finally:
-                await engine_ws.close()
-                try:
-                    await recv_task
-                except Exception:
-                    pass
-
-        except Exception as e:
-            msg = str(e)
-            if (stop_event.is_set()
-                    or "cannot schedule new futures after shutdown" in msg
-                    or "Event loop is closed" in msg):
-                logger.info("Capture worker ending (%s)", msg or "stopped")
-            else:
-                if program and msg.startswith("Program not running"):
-                    logger.info("Capture: %s", msg)
-                else:
-                    logger.error("Capture error: %s", e)
-                _emit_ui({"type": "capture_ended", "stream": stream_tag})
-        finally:
-            if engine_ws is not None:
-                try:
-                    await engine_ws.close()
-                except Exception:
-                    pass
-            if program:
-                if stream:
-                    try:
-                        stream.stop_stream()
-                        stream.close()
-                    except Exception:
-                        pass
-            else:
-                with _pa_lock:
-                    if stream:
-                        try:
-                            stream.stop_stream()
-                            stream.close()
-                        except Exception:
-                            pass
-                    if p is not None:
-                        try:
-                            p.terminate()
-                        except Exception:
-                            pass
-            logger.info("Capture stopped")
-
-    asyncio.run(run())
-
-def start_capture(device_index: int, mgr: "EngineManager", program: "str | None" = None):
-    global _capture_thread, _capture_stop, _last_device_index, _last_program
-    stop_capture()
-    _last_device_index = device_index
-    _last_program = program
-    _capture_stop = threading.Event()
-    is_mic = _source_mode == "mic" and not program
-    _capture_thread = threading.Thread(
-        target=_capture_worker,
-        args=(device_index, _capture_stop, mgr, "listener", None, is_mic, program),
-        daemon=True,
-    )
-    _capture_thread.start()
-
-def stop_capture():
-    global _capture_thread
-    _capture_stop.set()
-    if _capture_thread and _capture_thread.is_alive():
-        _capture_thread.join(timeout=3)
-    _capture_thread = None
-
-def _capture_active() -> bool:
-    return _capture_thread is not None and _capture_thread.is_alive()
-
-@dataclass
-class _DualSlot:
-    mgr: "EngineManager"
-    thread: threading.Thread
-    stop: threading.Event
-    shared_engine: "str | None" = None
-    device: int = -1
-    language: "str | None" = None
-    program: "str | None" = None
-
-_dual_slots: dict[str, _DualSlot] = {}
-_dual_shared: dict[str, "EngineManager"] = {}
-_dual_shared_refs: dict[str, set[str]] = {}
-_DUAL_ENGINE = "nano"
-_DUAL_SHARED_ENGINES = {"qwen3", "whisper-batch"}
-
-def start_dual(slots: dict) -> None:
-    stop_dual()
-    claimed_single = False
-    try:
-        for slot, cfg in slots.items():
-            if not cfg:
-                continue
-            claimed_single = _start_dual_slot(slot, cfg, allow_claim_single=not claimed_single) or claimed_single
-    except Exception:
-        stop_dual()
-        raise
-
-def _start_dual_slot(slot: str, cfg: dict, allow_claim_single: bool) -> bool:
-    dev = cfg.get("device")
-    program = cfg.get("program")
-    if dev is None and not program:
-        return False
-    engine = cfg.get("engine") or _DUAL_ENGINE
-    lang = cfg.get("language")
-    if not lang or lang == "auto":
-        lang = _stt_language
-    model = cfg.get("model") or _model_for(engine)
-    shared_engine = None
-    claimed = False
-    if (allow_claim_single and _engine_mgr.running()
-            and (_engine_mgr.engine_id, _engine_mgr.language, _engine_mgr.model)
-                == (engine, lang, model)):
-        mgr = _engine_mgr
-        claimed = True
-    elif engine in _DUAL_SHARED_ENGINES:
-        mgr = _dual_shared.get(engine)
-        if mgr is None:
-            mgr = EngineManager(ENGINES_DIR)
-            mgr.refresh()
-            if not mgr.available(engine):
-                raise RuntimeError(f"{engine} engine not installed")
-            mgr.ensure(engine, lang, model)
-            _dual_shared[engine] = mgr
-        _dual_shared_refs.setdefault(engine, set()).add(slot)
-        shared_engine = engine
-    else:
-        mgr = EngineManager(ENGINES_DIR)
-        mgr.refresh()
-        if not mgr.available(engine):
-            raise RuntimeError(f"{engine} engine not installed")
-        mgr.ensure(engine, lang, model)
-    slot_lang = cfg.get("language")
-    dev_idx = int(dev) if dev is not None else -1
-    stop = threading.Event()
-    t = threading.Thread(target=_capture_worker,
-                         args=(dev_idx, stop, mgr, slot, slot_lang, slot == "you", program), daemon=True)
-    _dual_slots[slot] = _DualSlot(mgr, t, stop, shared_engine, dev_idx, slot_lang, program)
-    t.start()
-    return claimed
-
-def reconfigure_dual_slot(slot: str, cfg: dict) -> None:
-    if slot not in _dual_slots:
-        return
-    stop_dual_slot(slot)
-    _start_dual_slot(slot, cfg, allow_claim_single=False)
-
-def _release_shared(slot: str, engine: str) -> None:
-    users = _dual_shared_refs.get(engine)
-    if users is None:
-        return
-    users.discard(slot)
-    if not users:
-        _dual_shared_refs.pop(engine, None)
-        mgr = _dual_shared.pop(engine, None)
-        if mgr is not None:
-            try:
-                mgr.stop()
-            except Exception:
-                pass
-
-def stop_dual_slot(slot: str) -> None:
-    s = _dual_slots.pop(slot, None)
-    if s is None:
-        return
-    s.stop.set()
-    if s.thread.is_alive():
-        s.thread.join(timeout=3)
-    if s.shared_engine is not None:
-        _release_shared(slot, s.shared_engine)
-    elif s.mgr is not _engine_mgr:
-        try:
-            s.mgr.stop()
-        except Exception:
-            pass
-
-def restart_dual_slot(slot: str) -> None:
-    s = _dual_slots.get(slot)
-    if s is None or (s.device < 0 and not s.program):
-        return
-    s.stop.set()
-    if s.thread.is_alive():
-        s.thread.join(timeout=3)
-    s.stop = threading.Event()
-    s.thread = threading.Thread(target=_capture_worker,
-                                args=(s.device, s.stop, s.mgr, slot, s.language, slot == "you", s.program), daemon=True)
-    s.thread.start()
-
-def stop_dual() -> None:
-    for s in _dual_slots.values():
-        s.stop.set()
-    for s in _dual_slots.values():
-        if s.thread.is_alive():
-            s.thread.join(timeout=3)
-    for s in _dual_slots.values():
-        if s.shared_engine is None and s.mgr is not _engine_mgr:
-            try:
-                s.mgr.stop()
-            except Exception:
-                pass
-    for mgr in _dual_shared.values():
-        try:
-            mgr.stop()
-        except Exception:
-            pass
-    _dual_slots.clear()
-    _dual_shared.clear()
-    _dual_shared_refs.clear()
-
-def _dual_active() -> bool:
-    return any(s.thread.is_alive() for s in _dual_slots.values())
 
 @app.get("/")
 def index():
@@ -773,66 +408,7 @@ def version():
 
 @app.get("/engine/startup")
 def engine_startup():
-    return {
-        "running": _engine_mgr.running(),
-        "phase": _engine_mgr.startup_phase,
-        "detail": _engine_mgr.startup_detail,
-    }
-
-UPDATE_REPO = "LostPizzaMan/PizzaCaptions"
-UPDATE_URL = f"https://github.com/{UPDATE_REPO}/releases/latest"
-_UPDATE_TTL = 6 * 3600
-_update_cache: dict = {"checked": 0.0, "result": None}
-
-def _parse_version(s: str) -> tuple | None:
-    try:
-        return tuple(int(p) for p in s.strip().lstrip("vV").split("."))
-    except ValueError:
-        return None
-
-def _latest_release_via_redirect() -> tuple[str, str]:
-    req = urllib_request.Request(UPDATE_URL, headers={"User-Agent": f"LiveTranscription/{APP_VERSION}"})
-    with urllib_request.urlopen(req, timeout=5) as r:
-        final = r.url
-    if "/releases/tag/" not in final:
-        raise RuntimeError(f"unexpected releases URL: {final}")
-    return final.rstrip("/").rsplit("/", 1)[-1], final
-
-@app.get("/update/check")
-def update_check(force: bool = False):
-    now = time.time()
-    if not force and _update_cache["result"] is not None and now - _update_cache["checked"] < _UPDATE_TTL:
-        return _update_cache["result"]
-    result = {"current": APP_VERSION, "latest": None, "update_available": False, "url": UPDATE_URL}
-    tag, url = "", ""
-    try:
-        req = urllib_request.Request(
-            f"https://api.github.com/repos/{UPDATE_REPO}/releases/latest",
-            headers={"User-Agent": f"LiveTranscription/{APP_VERSION}",
-                     "Accept": "application/vnd.github+json"},
-        )
-        with urllib_request.urlopen(req, timeout=5) as r:
-            rel = json.loads(r.read())
-        tag, url = rel.get("tag_name", ""), rel.get("html_url") or UPDATE_URL
-    except Exception as e:
-        logger.info("Update check via API failed: %s", e)
-        try:
-            tag, url = _latest_release_via_redirect()
-        except Exception as e2:
-            logger.info("Update check failed: %s", e2)
-    latest, current = _parse_version(tag), _parse_version(APP_VERSION)
-    if latest and current:
-        result["latest"] = tag.lstrip("vV")
-        result["update_available"] = latest > current
-        result["url"] = url or UPDATE_URL
-    _update_cache.update(checked=now, result=result)
-    return result
-
-@app.post("/update/open")
-async def update_open():
-    url = (_update_cache.get("result") or {}).get("url") or UPDATE_URL
-    webbrowser.open(url)
-    return {"ok": True}
+    return capture._engine_pool.startup() or {"running": False, "phase": "", "detail": ""}
 
 @app.post("/open-external")
 def open_external(payload: dict = Body(...)):
@@ -844,7 +420,7 @@ def open_external(payload: dict = Body(...)):
 
 @app.get("/engines")
 def engines():
-    _engine_mgr.refresh()
+    CATALOG.refresh()
     return {
         "engines": [
             {
@@ -859,7 +435,7 @@ def engines():
                 "source": m["_source"],
                 "experimental": bool(m.get("experimental")),
             }
-            for m in sorted((mm for mm in _engine_mgr.manifests.values()
+            for m in sorted((mm for mm in CATALOG.manifests.values()
                              if mm.get("kind", "asr") == "asr"),
                             key=lambda m: bool(m.get("experimental")))
         ],
@@ -879,11 +455,29 @@ def _safe_id(value, kind: str = "id") -> str:
         raise HTTPException(status_code=400, detail=f"Invalid {kind}: {value!r}")
     return s
 
+capture.configure(
+    emit_ui=_emit_ui,
+    control_clients=_control_clients,
+    get_stt_language=lambda: _stt_language,
+    get_engine_models=lambda: _engine_models,
+    get_min_sound_level=lambda: _min_sound_level,
+    get_overlay_owner=lambda: _overlay_owner,
+)
+
 tts.configure(
-    model_for=_model_for,
+    model_for=capture._model_for,
     get_mic_name=lambda: _mic_device_name,
     persist=_persist_config,
     safe_id=_safe_id,
+)
+
+updates.configure(app_version=APP_VERSION)
+models.configure(
+    catalog=CATALOG,
+    model_for=capture._model_for,
+    get_stt_language=lambda: _stt_language,
+    slots=capture._slots,
+    get_spawning=capture.spawning_specs,
 )
 
 @app.post("/engines/install")
@@ -900,198 +494,18 @@ async def engines_install(payload: dict = Body(...)):
 def engines_install_status():
     return engine_install.get_job()
 
-_WHISPER_DL_EST = {
-    "tiny": "75 MB", "base": "145 MB", "small": "500 MB",
-    "medium": "1.5 GB", "large-v3-turbo": "1.6 GB", "large-v3": "3 GB",
-}
-_PARAKEET_STORAGE = {
-    "parakeet-tdt-0.6b-v3-int8": {"label": "European languages (25)", "est": "650 MB"},
-    "parakeet-ja": {"label": "Japanese", "est": "620 MB"},
-}
-
-def _path_size(p: Path) -> int:
-    if p.is_file():
-        return p.stat().st_size
-    if p.is_dir():
-        return sum(f.stat().st_size for f in p.rglob("*")
-                   if f.is_file() and not f.is_symlink())
-    return 0
-
-def _whisper_artifacts(model: str) -> list[Path]:
-    root = engine_install.MODELS_DIR / "whisper"
-    artifacts = []
-    flat = root / model
-    if flat.is_dir():
-        artifacts.append(flat)
-    pt = root / "pt" / f"{model}.pt"
-    if pt.exists():
-        artifacts.append(pt)
-    hf = root / "hf"
-    if hf.exists():
-        for d in hf.glob("models--*"):
-            name = d.name.lower()
-            if "distil" in name and "distil" not in model:
-                continue
-            if name.endswith(f"-{model}"):
-                artifacts.append(d)
-    return artifacts
-
-def _whisper_installed(model: str) -> bool:
-    root = engine_install.MODELS_DIR / "whisper"
-    if (root / model / "model.bin").exists():
-        return True
-    hf = root / "hf"
-    if hf.is_dir():
-        for d in hf.glob("models--*"):
-            name = d.name.lower()
-            if "distil" in name and "distil" not in model:
-                continue
-            if name.endswith(f"-{model}"):
-                if any(d.rglob("*.incomplete")):
-                    continue
-                if any((s / "model.bin").exists() for s in (d / "snapshots").glob("*")):
-                    return True
-    return False
-
-def _parakeet_active_model() -> str:
-    return "parakeet-ja" if _stt_language == "ja" else "parakeet-tdt-0.6b-v3-int8"
-
-def _model_held_by_dual(engine: str, model: str) -> bool:
-    for s in _dual_slots.values():
-        if not s.thread.is_alive():
-            continue
-        rid = s.mgr.engine_id
-        if engine in ("whisper", "whisper-batch") and rid in ("whisper", "whisper-batch"):
-            if s.mgr.model == model:
-                return True
-        elif engine == "parakeet" and rid in ("parakeet", "parakeet-stream"):
-            lang = s.language if (s.language and s.language != "auto") else _stt_language
-            slot_model = "parakeet-ja" if lang == "ja" else "parakeet-tdt-0.6b-v3-int8"
-            if slot_model == model:
-                return True
-    return False
-
-@app.get("/models")
-def list_models(engine: str):
-    items = []
-    if engine == "parakeet-stream":
-        engine = "parakeet"
-    if engine in ("whisper", "whisper-batch"):
-        manifest = _engine_mgr.manifests.get(engine, {})
-        active = _model_for(engine)
-        for m in manifest.get("models", []):
-            size = sum(_path_size(a) for a in _whisper_artifacts(m))
-            items.append({
-                "id": m, "label": m, "installed": _whisper_installed(m), "size_bytes": size,
-                "est_download": _WHISPER_DL_EST.get(m, "?"),
-                "can_download": True,
-                "active": m == active,
-            })
-    elif engine == "parakeet":
-        root = engine_install.MODELS_DIR / "parakeet"
-        active = _parakeet_active_model()
-        for mid, spec in _PARAKEET_STORAGE.items():
-            size = _path_size(root / mid)
-            items.append({
-                "id": mid, "label": spec["label"], "installed": size > 0,
-                "size_bytes": size, "est_download": spec["est"],
-                "can_download": True, "active": mid == active,
-            })
-    elif engine == "nano":
-        root = engine_install.MODELS_DIR / "nano"
-        size = sum(_path_size(root / n) for n in
-                   ("funasr-encoder-f16.gguf", "qwen3-0.6b-q8_0.gguf"))
-        items.append({
-            "id": "default", "label": "Fun-ASR-Nano (Q8)", "installed": size > 0,
-            "size_bytes": size, "est_download": "1.3 GB",
-            "can_download": False, "active": True,
-        })
-    else:
-        raise HTTPException(status_code=404, detail=f"Unknown engine: {engine}")
-    total = sum(i["size_bytes"] for i in items)
-    engine_install.MODELS_DIR.mkdir(parents=True, exist_ok=True)
-    free = shutil.disk_usage(engine_install.MODELS_DIR).free
-    return {"engine": engine, "models": items, "total_bytes": total, "disk_free_bytes": free}
-
-@app.post("/models/download")
-async def model_download(payload: dict = Body(...)):
-    engine, model = payload.get("engine"), payload.get("model")
-    if engine == "parakeet-stream":
-        engine = "parakeet"
-    if engine in ("whisper", "whisper-batch"):
-        py = manifest = None
-        for eid in (engine, "whisper-batch" if engine == "whisper" else "whisper"):
-            m = _engine_mgr.manifests.get(eid)
-            if m and m.get("_available"):
-                manifest, py = m, (m["_dir"] / m["python"]).resolve()
-                break
-        if manifest is None:
-            raise HTTPException(status_code=409, detail="Install a Whisper engine first")
-        if model not in manifest.get("models", []):
-            raise HTTPException(status_code=404, detail=f"Unknown model: {model}")
-        if not engine_install.start_whisper_model_download(py, model):
-            raise HTTPException(status_code=409, detail="Another download/install is already running")
-        return {"ok": True}
-    if engine != "parakeet" or model not in engine_install.PARAKEET_MODEL_ARCHIVES:
-        raise HTTPException(status_code=400, detail="Unknown engine/model for download")
-    if not engine_install.start_model_download(model):
-        raise HTTPException(status_code=409, detail="Another download/install is already running")
-    return {"ok": True}
-
-@app.post("/models/download/cancel")
-async def model_download_cancel():
-    engine_install.cancel_job()
-    return {"ok": True}
-
-@app.post("/models/delete")
-async def model_delete(payload: dict = Body(...)):
-    engine, model = payload.get("engine"), payload.get("model")
-    if engine == "parakeet-stream":
-        engine = "parakeet"
-    if _model_held_by_dual(engine, str(model)):
-        raise HTTPException(status_code=409, detail="Model is in use. Stop capture first, then delete it.")
-    if _engine_mgr.running():
-        running = _engine_mgr.engine_id
-        holds = (engine in ("whisper", "whisper-batch")
-                 and running in ("whisper", "whisper-batch") and _engine_mgr.model == model) or \
-                (engine == "parakeet" and running in ("parakeet", "parakeet-stream")
-                 and _parakeet_active_model() == model)
-        if holds:
-            if _capture_active() or _dual_active():
-                raise HTTPException(status_code=409, detail="Model is in use. Stop capture first, then delete it.")
-            _engine_mgr.stop()
-    if engine in ("whisper", "whisper-batch"):
-        manifest = _engine_mgr.manifests.get(engine, {})
-        if model not in manifest.get("models", []):
-            raise HTTPException(status_code=404, detail=f"Unknown model: {model}")
-        targets = _whisper_artifacts(str(model))
-    elif engine == "parakeet":
-        if model not in _PARAKEET_STORAGE:
-            raise HTTPException(status_code=404, detail=f"Unknown model: {model}")
-        d = engine_install.MODELS_DIR / "parakeet" / str(model)
-        targets = [d] if d.exists() else []
-    else:
-        raise HTTPException(status_code=404, detail=f"Unknown engine: {engine}")
-    freed = 0
-    for t in targets:
-        freed += _path_size(t)
-        if t.is_dir():
-            shutil.rmtree(t)
-        else:
-            t.unlink()
-    logger.info("Deleted model %s/%s (freed %.0f MB)", engine, model, freed / 1e6)
-    return {"ok": True, "freed_bytes": freed}
-
 @app.post("/engines/remove")
 async def engines_remove(payload: dict = Body(...)):
     engine_id = _safe_id(payload.get("engine"), "engine")
-    if _engine_mgr.running() and _engine_mgr.engine_id == engine_id:
-        stop_capture()
-        _engine_mgr.stop()
+    for slot, s in list(capture._slots.items()):
+        if s.mgr.engine_id == engine_id:
+            await asyncio.to_thread(capture.stop_slot, slot)
+            _emit_ui({"type": "capture_ended", "stream": slot})
     ocr.on_engine_removed(engine_id)
+    tts.on_engine_removed(engine_id)
     await win_captions.on_engine_removed(engine_id)
     engine_install.remove(engine_id)
-    _engine_mgr.refresh()
+    CATALOG.refresh()
     return {"ok": True}
 
 @app.get("/translate/lmstudio/models")
@@ -1188,13 +602,17 @@ def get_config():
         "captions_blur":          _captions_overlay.get_prefs()["blur"],
         "captions_pos_color":     _captions_overlay.get_prefs()["pos_color"],
         "captions_reading":       _captions_overlay.get_prefs()["reading"],
-        "source_mode":            _source_mode,
+        "captions_show":          _captions_overlay.get_prefs()["show"],
+        "captions_max_lines":     _captions_overlay.get_prefs()["max_lines"],
+        "captions_text_scale":    _captions_overlay.get_prefs()["text_scale"],
         "mic_device_name":        _mic_device_name,
         "loopback_device_name":   _loopback_device_name,
         "min_sound_level":        _min_sound_level,
         "stt_max_phrase_s":       _stt_max_phrase_s,
         "wizard_done":            _wizard_done,
+        "ui_state":               _ui_state,
         "suppress_osc_when_muted": _suppress_osc_when_muted,
+        "osc_chatbox":            _osc_chatbox,
         "program_capture_enabled": _program_capture_enabled,
         "program_capture_supported": _procloop.available(),
         **tts.config_dict(),
@@ -1204,18 +622,14 @@ def get_config():
 async def set_config(payload: dict = Body(...)):
     global _blocked_phrases, _discard_other_alphabets, _target_language
     global _win_captions_target, _win_captions_backend, _win_captions_to_transcript
-    global _source_mode, _mic_device_name, _loopback_device_name
+    global _mic_device_name, _loopback_device_name
     global _min_sound_level, _wizard_done, _suppress_osc_when_muted, _stt_max_phrase_s
-    global _program_capture_enabled
+    global _program_capture_enabled, _ui_state, _osc_chatbox
     m = _translate_module
     supported_backends = set(m._BACKENDS)
     backend = payload.get("translation_backend")
     if backend and backend not in supported_backends:
         raise HTTPException(status_code=400, detail=f"Unknown backend: {backend}")
-    if "source_mode" in payload:
-        if payload["source_mode"] not in ("mic", "loopback", "program"):
-            raise HTTPException(status_code=400, detail="source_mode must be 'mic', 'loopback' or 'program'")
-        _source_mode = payload["source_mode"]
     if isinstance(payload.get("mic_device_name"), str):
         _mic_device_name = payload["mic_device_name"]
         tts.on_mic_changed()
@@ -1234,8 +648,16 @@ async def set_config(payload: dict = Body(...)):
         os.environ["VAD_MAX_SPEECH_S"] = str(_stt_max_phrase_s)
     if isinstance(payload.get("wizard_done"), bool):
         _wizard_done = payload["wizard_done"]
+    if isinstance(payload.get("ui_state"), dict):
+        _ui_state = payload["ui_state"]
     if isinstance(payload.get("suppress_osc_when_muted"), bool):
         _suppress_osc_when_muted = payload["suppress_osc_when_muted"]
+    if "osc_chatbox" in payload:
+        v = payload["osc_chatbox"]
+        if v not in OSC_CHATBOX_MODES:
+            raise HTTPException(status_code=400,
+                                detail=f"osc_chatbox must be one of: {', '.join(OSC_CHATBOX_MODES)}")
+        _osc_chatbox = v
     if isinstance(payload.get("program_capture_enabled"), bool):
         _program_capture_enabled = payload["program_capture_enabled"]
     if "blocked_phrases" in payload:
@@ -1289,17 +711,18 @@ async def translate(payload: dict = Body(...)):
         return result
     except RuntimeError as e:
         raise HTTPException(status_code=500, detail=str(e))
+    except TimeoutError:
+        backend = _translate_module.TRANSLATION_BACKEND
+        raise HTTPException(
+            status_code=503,
+            detail=f"Translation timed out: {backend} did not answer in time")
     except urllib_error.URLError as e:
+        if isinstance(e.reason, TimeoutError):
+            backend = _translate_module.TRANSLATION_BACKEND
+            raise HTTPException(
+                status_code=503,
+                detail=f"Translation timed out: {backend} did not answer in time")
         raise HTTPException(status_code=503, detail=f"Translation failed: {e.reason}")
-
-async def _resume_capture(ws: WebSocket) -> bool:
-    if _last_device_index is None and not _last_program:
-        return False
-    await asyncio.to_thread(_ensure_stt_engine)
-    await asyncio.to_thread(start_capture, _last_device_index if _last_device_index is not None else -1,
-                            _engine_mgr, program=_last_program)
-    await ws.send_text(json.dumps({"status": "capture_started"}))
-    return True
 
 @app.websocket("/control")
 async def control_ws(ws: WebSocket):
@@ -1311,90 +734,63 @@ async def control_ws(ws: WebSocket):
         return
     await ws.accept()
     _control_clients.add(ws)
-    await ws.send_text(json.dumps({"status": "language_set", "language": _stt_language}))
     try:
         while True:
             msg = await ws.receive_text()
             data = json.loads(msg)
             action = data.get("action")
 
-            if action == "start_capture":
-                device_index = data.get("device_index")
-                program = data.get("program")
-                if device_index is None and not program:
-                    await ws.send_text(json.dumps({"error": "No device index provided"}))
-                    continue
-                _engine_mgr.refresh()
-                if not _engine_mgr.available(_active_engine):
-                    await ws.send_text(json.dumps({"error":
-                        "No transcription engine installed. Open Settings (⚙) and click Install"}))
-                    continue
-                try:
-                    await asyncio.to_thread(_ensure_stt_engine)
-                except Exception as e:
-                    logger.error("Engine start failed: %s", e)
-                    await ws.send_text(json.dumps({"error": f"Engine failed to start: {e}"}))
-                    continue
-                await asyncio.to_thread(start_capture,
-                                        int(device_index) if device_index is not None else -1,
-                                        _engine_mgr, program=program)
-                await ws.send_text(json.dumps({"status": "capture_started"}))
-
-            elif action == "stop_capture":
-                await asyncio.to_thread(stop_capture)
-                if _engine_mgr.running() and _engine_mgr.engine_id != "whisper" and not _dual_active():
-                    await asyncio.to_thread(_engine_mgr.stop)
-                await ws.send_text(json.dumps({"status": "capture_stopped"}))
-
-            elif action == "start_dual":
-                fallback = data.get("engine") or _DUAL_ENGINE
+            if action == "set_slots":
+                fallback = data.get("engine") or capture._DEFAULT_ENGINE
                 slots = {
                     "you": {"device": data.get("you_device"),
                             "engine": data.get("you_engine") or fallback,
                             "language": data.get("you_lang"),
                             "model": data.get("you_model"),
-                            "program": data.get("you_program")},
+                            "program": data.get("you_program"),
+                            "is_mic": data.get("you_is_mic")},
                     "them": {"device": data.get("them_device"),
                              "engine": data.get("them_engine") or fallback,
                              "language": data.get("them_lang"),
                              "model": data.get("them_model"),
-                             "program": data.get("them_program")},
+                             "program": data.get("them_program"),
+                             "is_mic": data.get("them_is_mic")},
                 }
                 try:
-                    await asyncio.to_thread(start_dual, slots)
-                    await ws.send_text(json.dumps({"status": "dual_started"}))
+                    await asyncio.to_thread(capture.set_slots, slots)
+                    live = [s for s, c in slots.items()
+                            if c["device"] is not None or c["program"]]
+                    if len(live) == 1:
+                        c = slots[live[0]]
+                        _active_engine = c["engine"]
+                        _engine_models[c["engine"]] = c["model"] or capture._model_for(c["engine"])
+                        if c["language"] and c["language"] != "auto":
+                            _stt_language = c["language"]
+                        _persist_config()
+                    await ws.send_text(json.dumps({"status": "slots_set"}))
+                except capture.SlotStartError as e:
+                    logger.error("Capture start failed (%s slot): %s", e.slot, e)
+                    await ws.send_text(json.dumps({"error": f"Capture start failed: {e}",
+                                                   "slot": e.slot, "running": e.running}))
                 except Exception as e:
-                    logger.error("Dual start failed: %s", e)
-                    stop_dual()
-                    await ws.send_text(json.dumps({"error": f"Dual start failed: {e}"}))
+                    logger.error("Capture start failed: %s", e)
+                    await asyncio.to_thread(capture.stop_all_slots)
+                    await ws.send_text(json.dumps({"error": f"Capture start failed: {e}", "running": []}))
 
-            elif action == "stop_dual":
-                stop_dual()
-                await ws.send_text(json.dumps({"status": "dual_stopped"}))
+            elif action == "stop_all_slots":
+                await asyncio.to_thread(capture.stop_all_slots)
+                await ws.send_text(json.dumps({"status": "all_slots_stopped"}))
 
-            elif action == "stop_dual_slot":
+            elif action == "stop_slot":
                 slot = data.get("slot")
                 if slot in ("you", "them"):
-                    await asyncio.to_thread(stop_dual_slot, slot)
-                await ws.send_text(json.dumps({"status": "dual_slot_stopped", "slot": slot}))
+                    await asyncio.to_thread(capture.stop_slot, slot)
+                await ws.send_text(json.dumps({"status": "slot_stopped", "slot": slot}))
 
-            elif action == "restart_dual_slot":
+            elif action == "restart_slot":
                 slot = data.get("slot")
                 if slot in ("you", "them"):
-                    await asyncio.to_thread(restart_dual_slot, slot)
-
-            elif action == "reconfigure_dual_slot":
-                slot = data.get("slot")
-                if slot in ("you", "them"):
-                    cfg = {"device": data.get("device"), "engine": data.get("engine"),
-                           "language": data.get("language"), "model": data.get("model"),
-                           "program": data.get("program")}
-                    try:
-                        await asyncio.to_thread(reconfigure_dual_slot, slot, cfg)
-                        await ws.send_text(json.dumps({"status": "dual_slot_reconfigured", "slot": slot}))
-                    except Exception as e:
-                        logger.error("Dual slot reconfigure failed: %s", e)
-                        await ws.send_text(json.dumps({"error": f"Reconfigure failed: {e}"}))
+                    await asyncio.to_thread(capture.restart_slot, slot)
 
             elif action == "set_overlay_owner":
                 slot = data.get("slot")
@@ -1411,77 +807,8 @@ async def control_ws(ws: WebSocket):
             elif action == "osc_typing":
                 send_osc_typing(data.get("flag", False))
 
-            elif action == "set_language":
-                lang = data.get("language", "ja")
-                manifest = _engine_mgr.manifests.get(_active_engine, {})
-                if lang not in manifest.get("languages", []):
-                    await ws.send_text(json.dumps({"error": f"Unsupported language: {lang}"}))
-                    continue
-                if lang == _stt_language:
-                    await ws.send_text(json.dumps({"status": "language_set", "language": lang}))
-                    continue
-                await ws.send_text(json.dumps({"status": "language_loading", "language": lang}))
-                was_capturing = _capture_active()
-                await asyncio.to_thread(stop_capture)
-                _stt_language = lang
-                _persist_config()
-                try:
-                    if was_capturing:
-                        await _resume_capture(ws)
-                    elif not _dual_active():
-                        await asyncio.to_thread(_engine_mgr.stop)
-                except Exception as e:
-                    logger.error("Language switch failed: %s", e)
-                    await ws.send_text(json.dumps({"error": f"Engine failed to start: {e}"}))
-                await ws.send_text(json.dumps({"status": "language_set", "language": lang}))
-
-            elif action == "set_engine":
-                engine_id = data.get("engine")
-                _engine_mgr.refresh()
-                manifest = _engine_mgr.manifests.get(engine_id)
-                if manifest is None:
-                    await ws.send_text(json.dumps({"error": f"Unknown engine: {engine_id}"}))
-                    continue
-                if not manifest["_available"]:
-                    await ws.send_text(json.dumps(
-                        {"error": f"Engine not installed: {engine_id}. Install it in Settings"}))
-                    continue
-                model = data.get("model") or _model_for(engine_id)
-                if model not in manifest.get("models", [model]):
-                    await ws.send_text(json.dumps({"error": f"Unknown model for {engine_id}: {model}"}))
-                    continue
-                languages = manifest.get("languages", [])
-                if (engine_id == _active_engine and model == _model_for(engine_id)
-                        and (not languages or _stt_language in languages)):
-                    await ws.send_text(json.dumps({
-                        "status": "engine_set", "engine": engine_id, "model": model,
-                        "languages": languages, "language": _stt_language,
-                    }))
-                    continue
-                await ws.send_text(json.dumps({"status": "engine_loading", "engine": engine_id}))
-                was_capturing = _capture_active()
-                await asyncio.to_thread(stop_capture)
-                _active_engine = engine_id
-                _engine_models[engine_id] = model
-                if _stt_language not in languages and languages:
-                    _stt_language = "en" if "en" in languages else languages[0]
-                _persist_config()
-                try:
-                    if was_capturing:
-                        await _resume_capture(ws)
-                    elif not _dual_active():
-                        await asyncio.to_thread(_engine_mgr.stop)
-                except Exception as e:
-                    logger.error("Engine switch failed: %s", e)
-                    await ws.send_text(json.dumps({"error": f"Engine failed to start: {e}"}))
-                await ws.send_text(json.dumps({
-                    "status": "engine_set", "engine": engine_id, "model": model,
-                    "languages": languages, "language": _stt_language,
-                }))
-
     except WebSocketDisconnect:
-        stop_capture()
-        stop_dual()
+        await asyncio.to_thread(capture.stop_all_slots)
     finally:
         _control_clients.discard(ws)
 
@@ -1563,9 +890,29 @@ def captions_overlay_reading(payload: dict = Body(...)):
     _persist_config()
     return {"ok": True}
 
+@app.post("/captions/overlay/content")
+def captions_overlay_content(payload: dict = Body(...)):
+    _captions_overlay.set_show(str(payload.get("mode") or "both"))
+    _persist_config()
+    return {"ok": True}
+
+@app.post("/captions/overlay/maxlines")
+def captions_overlay_maxlines(payload: dict = Body(...)):
+    _captions_overlay.set_max_lines(payload.get("lines"))
+    _persist_config()
+    return {"ok": True}
+
+@app.post("/captions/overlay/textscale")
+def captions_overlay_textscale(payload: dict = Body(...)):
+    _captions_overlay.set_text_scale(payload.get("scale"))
+    _persist_config()
+    return {"ok": True}
+
 @app.get("/captions/overlay/state")
 def captions_overlay_state():
     return _captions_overlay.get_prefs()
+
+mimetypes.add_type("text/javascript", ".js")
 
 app.mount("/", StaticFiles(directory=str(WEB_DIR)), name="static")
 

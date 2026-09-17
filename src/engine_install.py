@@ -52,6 +52,13 @@ NANO_MODEL_FILES = {
     "qwen3-0.6b-q8_0.gguf": f"{_NANO_GGUF}/qwen3-0.6b-q8_0.gguf",
 }
 
+_NEMO_SPEECH_REL = "https://github.com/NVIDIA/NeMo-Speech.cpp/releases/download/v0.1.0"
+NEMOTRON_RUNTIME_URL = f"{_NEMO_SPEECH_REL}/nemo-speech-0.1.0-windows-x86_64-cpu.zip"
+_NEMOTRON_HF = "https://huggingface.co/nvidia/nemotron-3.5-asr-streaming-0.6b/resolve/main"
+NEMOTRON_MODEL_FILES = {
+    "nemotron-3.5-asr-streaming-0.6b.q8_0.gguf": f"{_NEMOTRON_HF}/nemotron-3.5-asr-streaming-0.6b.q8_0.gguf",
+}
+
 _LLAMACPP_REL = "https://github.com/ggml-org/llama.cpp/releases/download/b10149"
 QWEN3_RUNTIME_URLS = (
     f"{_LLAMACPP_REL}/llama-b10149-bin-win-cuda-12.4-x64.zip",
@@ -77,7 +84,8 @@ JADICT_DICT_URL = (
 )
 
 _job_lock = threading.Lock()
-_job: dict = {"engine": None, "phase": "idle", "detail": "", "error": None, "done": True}
+_job: dict = {"engine": None, "phase": "idle", "detail": "", "progress": None,
+              "error": None, "done": True}
 
 def get_job() -> dict:
     with _job_lock:
@@ -85,6 +93,7 @@ def get_job() -> dict:
 
 def _set_job(**kw):
     with _job_lock:
+        kw.setdefault("progress", None)
         _job.update(kw)
 
 _cancel_ev = threading.Event()
@@ -111,7 +120,7 @@ def _simulate_download(phase: str = "downloading-models", seconds: float = 6.0):
     for i in range(steps + 1):
         if _cancel_ev.is_set():
             raise _Cancelled()
-        _set_job(phase=phase, detail=f"{i * 100 // steps}%")
+        _set_job(phase=phase, detail=f"{i * 100 // steps}%", progress=i / steps)
         time.sleep(seconds / steps)
 
 def _find_uv() -> str:
@@ -150,8 +159,10 @@ def _download(url: str, dest: Path, phase: str):
                         break
                     f.write(chunk)
                     done += len(chunk)
-                    _set_job(phase=phase, detail=(f"{done / 1e6:.0f} / {total / 1e6:.0f} MB"
-                                                  if total else f"{done / 1e6:.0f} MB"))
+                    _set_job(phase=phase,
+                             detail=(_fmt_mb(done / 1e6, total / 1e6) if total
+                                     else f"{done / 1e6:.0f} MB"),
+                             progress=(done / total if total else None))
         if total and done < total:
             raise RuntimeError(f"download truncated: {done} of {total} bytes")
         tmp.rename(dest)
@@ -259,7 +270,7 @@ def start_model_download(model_id: str) -> bool:
         if not _job["done"]:
             return False
         _cancel_ev.clear()
-        _job.update(engine="parakeet", phase="starting", detail="", error=None, done=False)
+        _job.update(engine="parakeet", phase="starting", detail="", progress=None, error=None, done=False)
 
     def run():
         try:
@@ -274,12 +285,36 @@ def start_model_download(model_id: str) -> bool:
     threading.Thread(target=run, daemon=True).start()
     return True
 
+def _fmt_one(mb: float) -> str:
+    return f"{mb / 1024:.1f} GB" if mb >= 1024 else f"{mb:.0f} MB"
+
+def _fmt_mb(done_mb: float, total_mb: float) -> str:
+    return f"{_fmt_one(done_mb)} / {_fmt_one(total_mb)}"
+
 _DL_PCT_RE = re.compile(r"(\d{1,3})%")
+_DL_SIZE_RE = re.compile(r"(\d[\d.]*)\s*([kKMG])i?B?\s*/\s*(\d[\d.]*)\s*([kKMG])i?B?")
+_DL_UNIT_MB = {"k": 1 / 1024, "K": 1 / 1024, "M": 1.0, "G": 1024.0}
+_dl_max_total_mb = 0.0
+_dl_last_fraction: "float | None" = None
+_DL_MIN_TOTAL_MB = 8.0
 
 def _whisper_dl_detail(line: str) -> str | None:
+    global _dl_max_total_mb, _dl_last_fraction
+    _dl_last_fraction = None
     low = line.lower()
     if not ("%|" in line or "b/s" in low or "download" in low
             or "fetching" in low or "reconstructing" in low):
+        return None
+    m = _DL_SIZE_RE.search(line)
+    if m:
+        done = float(m.group(1)) * _DL_UNIT_MB[m.group(2)]
+        total = float(m.group(3)) * _DL_UNIT_MB[m.group(4)]
+        if total >= max(_DL_MIN_TOTAL_MB, _dl_max_total_mb * 0.5):
+            _dl_max_total_mb = max(_dl_max_total_mb, total)
+            _dl_last_fraction = min(1.0, done / total) if total else None
+            return _fmt_mb(done, total)
+        return None
+    if _dl_max_total_mb:
         return None
     m = _DL_PCT_RE.search(line)
     return f"{m.group(1)}%" if m else "downloading..."
@@ -289,13 +324,19 @@ _WHISPER_DL_RUNNER = Path(__file__).resolve().parent / "whisper_dl_runner.py"
 def whisper_model_dir(model: str) -> Path:
     return MODELS_DIR / "whisper" / model
 
-def download_whisper_model(engine_python: Path, model: str):
+def download_whisper_model(engine_python: Path, model: str, with_decoder: bool = False):
     global _cur_proc
     if _fake_download():
         _simulate_download(); return
+    global _dl_max_total_mb, _dl_last_fraction
+    _dl_max_total_mb = 0.0
+    _dl_last_fraction = None
     dest = whisper_model_dir(model)
     dest.mkdir(parents=True, exist_ok=True)
-    proc = subprocess.Popen([str(engine_python), str(_WHISPER_DL_RUNNER), model, str(dest)],
+    cmd = [str(engine_python), str(_WHISPER_DL_RUNNER), model, str(dest)]
+    if with_decoder:
+        cmd.append("--with-decoder")
+    proc = subprocess.Popen(cmd,
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                             text=True, encoding="utf-8", errors="replace",
                             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
@@ -316,7 +357,8 @@ def download_whisper_model(engine_python: Path, model: str):
                 del tail[:-15]
                 detail = _whisper_dl_detail(line)
                 if detail:
-                    _set_job(phase="downloading-models", detail=detail)
+                    _set_job(phase="downloading-models", detail=detail,
+                             progress=_dl_last_fraction)
             else:
                 buf.append(ch)
         code = proc.wait()
@@ -327,16 +369,17 @@ def download_whisper_model(engine_python: Path, model: str):
     if code != 0:
         raise RuntimeError("whisper model download failed: " + (" | ".join(tail[-5:]) or "no output"))
 
-def start_whisper_model_download(engine_python: Path, model: str) -> bool:
+def start_whisper_model_download(engine_python: Path, model: str,
+                                 with_decoder: bool = False) -> bool:
     with _job_lock:
         if not _job["done"]:
             return False
         _cancel_ev.clear()
-        _job.update(engine="whisper", phase="starting", detail="", error=None, done=False)
+        _job.update(engine="whisper", phase="starting", detail="", progress=None, error=None, done=False)
 
     def run():
         try:
-            download_whisper_model(engine_python, model)
+            download_whisper_model(engine_python, model, with_decoder)
             _set_job(phase="done", detail="", done=True)
         except _Cancelled:
             _set_job(phase="cancelled", detail="", error=None, done=True)
@@ -352,7 +395,7 @@ def start_jadict_download() -> bool:
         if not _job["done"]:
             return False
         _cancel_ev.clear()
-        _job.update(engine="jadict", phase="starting", detail="", error=None, done=False)
+        _job.update(engine="jadict", phase="starting", detail="", progress=None, error=None, done=False)
 
     def run():
         try:
@@ -420,6 +463,39 @@ def _install_nano_binary(dest: Path):
     _extract_or_purge(archive, _x)
     if not (bin_dir / "llama-funasr-cli.exe").exists():
         raise RuntimeError("llama-funasr-cli.exe missing from FunASR runtime archive")
+
+def download_nemotron_models():
+    target = MODELS_DIR / "nemotron"
+    target.mkdir(parents=True, exist_ok=True)
+    for name, url in NEMOTRON_MODEL_FILES.items():
+        dst = target / name
+        if not dst.exists():
+            _download(url, dst, "downloading-models")
+
+def _install_nemotron_binary(dest: Path):
+    bin_dir = dest / "bin"
+    if (bin_dir / "nemo-speech.exe").exists():
+        return
+    bin_dir.mkdir(parents=True, exist_ok=True)
+    archive = CACHE_DIR / NEMOTRON_RUNTIME_URL.rsplit("/", 1)[-1]
+    _download(NEMOTRON_RUNTIME_URL, archive, "downloading-runtime")
+    _set_job(phase="extracting-runtime", detail="")
+    def _x():
+        with zipfile.ZipFile(archive) as zf:
+            members = [m for m in zf.namelist() if m.startswith("bin/") and not m.endswith("/")]
+            if not members:
+                members = [m for m in zf.namelist()
+                           if not m.endswith("/") and Path(m).suffix.lower() in (".exe", ".dll")]
+            for member in members:
+                rel = member[4:] if member.startswith("bin/") else Path(member).name
+                out = (bin_dir / rel).resolve()
+                if not str(out).startswith(str(bin_dir.resolve())):
+                    raise RuntimeError(f"unsafe path in archive: {member}")
+                out.parent.mkdir(parents=True, exist_ok=True)
+                out.write_bytes(zf.read(member))
+    _extract_or_purge(archive, _x)
+    if not (bin_dir / "nemo-speech.exe").exists():
+        raise RuntimeError("nemo-speech.exe missing from the NeMo-Speech.cpp runtime archive")
 
 def download_ocr_models(tier: str = "medium"):
     repos = OCR_MODEL_REPOS.get(tier)
@@ -539,6 +615,10 @@ def install(engine_id: str, source_dir: Path, repo_dir: Path):
             _install_nano_binary(dest)
             download_nano_models()
             manifest["models_dir"] = "../../models/nano"
+        elif engine_id == "nemotron-stream":
+            _install_nemotron_binary(dest)
+            download_nemotron_models()
+            manifest["models_dir"] = "../../models/nemotron"
         elif engine_id == "ocr":
             download_ocr_models(manifest.get("default_model", "medium"))
             manifest["models_dir"] = "../../models/ocr"
@@ -574,7 +654,7 @@ def start_install(engine_id: str, source_dir: Path, repo_dir: Path) -> bool:
         if not _job["done"]:
             return False
         _cancel_ev.clear()
-        _job.update(engine=engine_id, phase="starting", detail="", error=None, done=False)
+        _job.update(engine=engine_id, phase="starting", detail="", progress=None, error=None, done=False)
     threading.Thread(target=install, args=(engine_id, source_dir, repo_dir), daemon=True).start()
     return True
 

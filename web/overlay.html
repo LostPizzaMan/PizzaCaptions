@@ -28,7 +28,7 @@
     .obox.vert { justify-content: center; }
     .obox.vert .obox-t { writing-mode: vertical-rl; padding: 1px 0; }
   </style>
-  <link rel="stylesheet" href="/common.css?v=1" />
+  <link rel="stylesheet" href="/css/common.css?v=1" />
 </head>
 <body>
   <div id="scrim"></div>
@@ -36,7 +36,8 @@
   <div id="boxes"></div>
   <div id="hint"></div>
   <script src="/vendor/kuromoji/kuromoji.js"></script>
-  <script src="/jadict.js?v=59"></script>
+  <script type="module" src="/js/jadict.js?v=63"></script>
+  <script type="module" src="/js/ocr.js?v=1"></script>
   <script>
     const scrim = document.getElementById('scrim');
     const sel = document.getElementById('sel');

@@ -7,7 +7,6 @@
   "entry": "engine_server.py",
   "python": "../../.venv/Scripts/python.exe",
   "languages": [
-    "auto",
     "en",
     "ja",
     "zh",

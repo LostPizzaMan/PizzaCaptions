@@ -41,12 +41,14 @@ _passthru_enabled = False
 _tts_terms_accepted: set[str] = set()
 
 class TtsManager(EngineManager):
-    def speak(self, text: str, voice: str, speed: float) -> tuple[bytes, int]:
+    def speak(self, text: str, voice: str, speed: float,
+              lang: "str | None" = None) -> tuple[bytes, int]:
         with self.lock:
             port = self.port
         if port is None:
             raise RuntimeError("TTS engine not running")
-        body = json.dumps({"text": text, "voice": voice, "speed": speed}).encode("utf-8")
+        body = json.dumps({"text": text, "voice": voice, "speed": speed,
+                           "lang": lang or ""}).encode("utf-8")
         req = urllib_request.Request(
             f"http://127.0.0.1:{port}/speak", data=body,
             headers={"Content-Type": "application/json"}, method="POST")
@@ -530,6 +532,13 @@ def on_shutdown():
     _tts_mgr.stop()
     _stop_playback()
 
+def on_engine_removed(engine_id: str):
+    global _winvoices_cache
+    if _tts_mgr.running() and _tts_mgr.engine_id == engine_id:
+        _tts_mgr.stop()
+    if engine_id == "winvoices":
+        _winvoices_cache = None
+
 def on_mic_changed():
     _restart_passthru_if_running()
 
@@ -771,6 +780,9 @@ async def tts_speak(payload: dict = Body(...)):
 
     engine_id = m["id"]
     lang = (m.get("languages") or ["en"])[0]
+    say_lang = str(payload.get("lang") or "").strip().lower()[:8]
+    if say_lang and say_lang not in (m.get("languages") or []):
+        say_lang = ""
     try:
         await asyncio.to_thread(_tts_mgr.ensure, engine_id, lang, _model_for(engine_id))
     except Exception as e:
@@ -778,7 +790,7 @@ async def tts_speak(payload: dict = Body(...)):
         raise HTTPException(status_code=500, detail=f"engine start failed: {e}")
     try:
         t0 = time.perf_counter()
-        pcm, rate = await asyncio.to_thread(_tts_mgr.speak, text, voice, speed)
+        pcm, rate = await asyncio.to_thread(_tts_mgr.speak, text, voice, speed, say_lang)
         gen_ms = round((time.perf_counter() - t0) * 1000)
     except Exception as e:
         logger.error("TTS synthesis failed: %s", e)

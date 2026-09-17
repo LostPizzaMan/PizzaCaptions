@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 ENGINES_DIR = BASE_DIR / "engines"
+UI_PORT = 3011
 
 ENGINE_STARTUP_TIMEOUT = 1800
 
@@ -44,20 +45,11 @@ def _download_detail(line: str) -> str | None:
         return size.group(1).replace(" ", "")
     return "starting download..."
 
-class EngineManager:
+class EngineCatalog:
     def __init__(self, engines_dir: Path):
         self.engines_dir = engines_dir
         self.manifests: dict[str, dict] = {}
         self.refresh()
-        self.proc: subprocess.Popen | None = None
-        self.port: int | None = None
-        self.engine_id: str | None = None
-        self.language: str | None = None
-        self.model: str | None = None
-        self.lock = threading.Lock()
-        self.startup_phase: str = ""
-        self.startup_detail: str = ""
-        self.recent_output: deque[str] = deque(maxlen=25)
 
     def refresh(self):
         manifests: dict[str, dict] = {}
@@ -76,7 +68,8 @@ class EngineManager:
                         continue
                     if manifests.get(m["id"], {}).get("needs_vc_runtime"):
                         m.setdefault("needs_vc_runtime", True)
-                    for field in ("name", "description", "languages"):
+                    for field in ("name", "description", "languages", "voices",
+                                  "default_voice"):
                         app_val = manifests.get(m["id"], {}).get(field)
                         if app_val:
                             m[field] = app_val
@@ -88,6 +81,32 @@ class EngineManager:
     def available(self, engine_id: str) -> bool:
         m = self.manifests.get(engine_id)
         return bool(m and m["_available"])
+
+CATALOG = EngineCatalog(ENGINES_DIR)
+
+class EngineManager:
+    def __init__(self, engines_dir: Path, catalog: "EngineCatalog | None" = None):
+        self.engines_dir = engines_dir
+        self.catalog = catalog or CATALOG
+        self.proc: subprocess.Popen | None = None
+        self.port: int | None = None
+        self.engine_id: str | None = None
+        self.language: str | None = None
+        self.model: str | None = None
+        self.lock = threading.Lock()
+        self.startup_phase: str = ""
+        self.startup_detail: str = ""
+        self.recent_output: deque[str] = deque(maxlen=25)
+
+    @property
+    def manifests(self) -> dict[str, dict]:
+        return self.catalog.manifests
+
+    def refresh(self):
+        self.catalog.refresh()
+
+    def available(self, engine_id: str) -> bool:
+        return self.catalog.available(engine_id)
 
     def running(self) -> bool:
         return self.proc is not None and self.proc.poll() is None

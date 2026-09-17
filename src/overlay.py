@@ -5,7 +5,7 @@ import hotkey as _hotkey
 
 logger = logging.getLogger(__name__)
 
-UI_PORT = 3011
+from engine_base import UI_PORT
 OVERLAY_URL = f"http://127.0.0.1:{UI_PORT}/overlay.html"
 _HOTKEY_MODS = _hotkey.MOD_ALT
 _HOTKEY_VK = _hotkey.VK_S

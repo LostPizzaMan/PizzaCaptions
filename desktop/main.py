@@ -2,7 +2,6 @@ import asyncio
 import os
 import sys
 import threading
-import time
 
 from pathlib import Path
 from urllib import request as urllib_request
@@ -16,7 +15,7 @@ if sys.stdout is None or sys.stderr is None:
 REPO_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_DIR / "src"))
 
-UI_PORT = 3011
+from engine_base import UI_PORT
 
 def start_backend_async():
     def run():
@@ -33,21 +32,17 @@ def start_backend_async():
 
 def shutdown():
     import sys
-    server = sys.modules.get("server")
-    if server is None:
+    if sys.modules.get("server") is None:
         return
-    try:
-        server.stop_capture()
-    except Exception:
-        pass
-    try:
-        server._engine_mgr.stop()
-    except Exception:
-        pass
-    try:
-        server._tts_mgr.stop()
-    except Exception:
-        pass
+    for mod, fn in (("capture", "stop_all_slots"), ("tts", "on_shutdown"),
+                    ("ocr", "on_shutdown"), ("jadict", "on_shutdown"),
+                    ("win_captions", "stop_pack")):
+        m = sys.modules.get(mod)
+        try:
+            if m is not None:
+                getattr(m, fn)()
+        except Exception:
+            pass
     ov = sys.modules.get("overlay")
     if ov is not None:
         try:

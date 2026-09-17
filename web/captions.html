@@ -28,8 +28,18 @@
     line-height: 1.35; word-break: break-word;
     text-shadow: 0 1px 2px rgba(0, 0, 0, 0.95), 0 0 5px rgba(0, 0, 0, 0.75);
   }
-  #active .orig { font-size: 30px; font-weight: 600; color: #fff; }
-  #active .tr   { font-size: 22px; color: #cfe8ff; }
+
+  #active .orig { font-size: calc(30px * var(--cc-scale, 1)); font-weight: 600; color: #fff; }
+  #active .tr   { font-size: calc(22px * var(--cc-scale, 1)); color: #cfe8ff; }
+
+  #active .line { font-size: calc(30px * var(--cc-scale, 1)); line-height: 1.35; }
+  body.furi #active .line { line-height: 1.9; }
+  body.cc-clip #active .line {
+    justify-content: flex-end;
+    max-height: calc(var(--cc-max-lines, 3) * 1lh); overflow: hidden;
+  }
+
+  body.hide-orig #active .orig, body.hide-tr #active .tr { display: none; }
 
   body.blur-tr .tr { filter: blur(7px); transition: filter 0.12s ease; }
   body.blur-tr .tr:hover,
@@ -53,15 +63,16 @@
   body.furi #active .orig, body.furi #active .tr { line-height: 1.9; }
   body.roma .orig .jarun::after, body.roma .tr .jarun::after { content: " "; white-space: pre; }
 </style>
-<link rel="stylesheet" href="/common.css?v=1" />
+<link rel="stylesheet" href="/css/common.css?v=1" />
 </head>
-<body>
+
+<body class="cc-clip">
   <div id="bar" class="empty">
     <div id="history"></div>
     <div id="active"></div>
   </div>
   <script src="/vendor/kuromoji/kuromoji.js"></script>
-  <script src="/jadict.js?v=59"></script>
+  <script type="module" src="/js/jadict.js?v=63"></script>
 <script>
 (function () {
   const bar = document.getElementById('bar');
@@ -81,6 +92,7 @@
   let interactive = false;
   let hoverDefine = true;
   let blurTr = false;
+  let showMode = 'both';
   let ws = null;
 
   const SILENCE_COMMIT_MS = 1250, SILENCE_FORCE_MARKED_MS = 8000, SOFT_LENGTH_LIMIT = 30;
@@ -150,12 +162,19 @@
     }
   }
 
+  function showFlags(mode, hasTr) {
+    return { hideOrig: mode === 'translation' && hasTr, hideTr: mode === 'original' };
+  }
+
   function render() {
     const { text, idx } = currentLine();
     const tr = lineTr[idx] || '';
     const live = !!activeText;
     const placeholder = !text && interactive;
     const jaOn = jaRenderOn();
+    const flags = showFlags(showMode, !!tr);
+    document.body.classList.toggle('hide-orig', flags.hideOrig);
+    document.body.classList.toggle('hide-tr', flags.hideTr);
 
     const origKey = text + '\x00' + (live ? 1 : 0) + '\x00' + (placeholder ? 1 : 0) + '\x00' + (jaOn ? 1 : 0);
     if (origKey !== lastOrigKey) {
@@ -200,7 +219,7 @@
     wake();
 
     var s = data.stream;
-    if (s && s !== 'listener' && s !== 'win_captions' && s !== 'you' && s !== 'them') return;
+    if (s && s !== 'win_captions' && s !== 'you' && s !== 'them') return;
     const visible = data.lines.filter(l => l.speaker !== -2 && (l.text || '').trim());
     const latest = visible[visible.length - 1];
     if (!latest) return;
@@ -334,6 +353,22 @@
     if (!blurTr) document.body.classList.remove('tr-reveal');
   };
 
+  window.__captionsShow = function (mode) {
+    showMode = (mode === 'original' || mode === 'translation') ? mode : 'both';
+    render();
+  };
+
+  window.__captionsMaxLines = function (n) {
+    n = Math.max(0, Math.min(6, parseInt(n, 10) || 0));
+    document.documentElement.style.setProperty('--cc-max-lines', n);
+    document.body.classList.toggle('cc-clip', n > 0);
+  };
+
+  window.__captionsTextScale = function (v) {
+    v = parseFloat(v); if (!(v > 0)) v = 1;
+    document.documentElement.style.setProperty('--cc-scale', Math.max(0.6, Math.min(2, v)));
+  };
+
   window.__captionsReading = function (mode) {
     if (window.jadict && window.jadict.setReadingMode) window.jadict.setReadingMode(mode);
     var m = (window.jadict && window.jadict.readingMode) || 'off';
@@ -376,6 +411,9 @@
     if (s.blur) { blurTr = true; document.body.classList.add('blur-tr'); }
     if (s.hover === false) hoverDefine = false;
     if (s.reading && s.reading !== 'off') window.__captionsReading(s.reading);
+    window.__captionsShow(s.show);
+    window.__captionsMaxLines(s.max_lines);
+    window.__captionsTextScale(s.text_scale);
   }).catch(function () {});
 
   applyPos();

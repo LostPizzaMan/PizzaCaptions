@@ -1635,6 +1635,7 @@ ruby rt {
 
 .etag {
   font-size: 9px;
+  white-space: nowrap;
   letter-spacing: 0.05em;
   text-transform: uppercase;
   color: var(--muted);

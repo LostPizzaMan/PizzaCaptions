@@ -6,10 +6,14 @@ import hotkey as _hotkey
 
 logger = logging.getLogger(__name__)
 
-UI_PORT = 3011
+from engine_base import UI_PORT
 CAPTIONS_URL = f"http://127.0.0.1:{UI_PORT}/captions.html"
 _HOTKEY_MODS = _hotkey.MOD_ALT
 _HOTKEY_VK = _hotkey.VK_C
+
+SHOW_MODES = ("both", "original", "translation")
+MAX_LINES_CAP = 6
+MIN_TEXT_SCALE, MAX_TEXT_SCALE = 0.6, 2.0
 
 _app_handle = None
 _win = None
@@ -19,6 +23,9 @@ _hover_enabled = True
 _blur_translation = False
 _pos_color = False
 _reading = "off"
+_show = "both"
+_max_lines = 3
+_text_scale = 1.0
 _origin = (0, 0)
 _hk = None
 _poll_thread = None
@@ -90,11 +97,14 @@ def _do_show() -> None:
                 "window.__captionsHoverDefine && window.__captionsHoverDefine(%s);"
                 "window.__captionsBlur && window.__captionsBlur(%s);"
                 "window.__captionsPosColor && window.__captionsPosColor(%s);"
-                "window.__captionsReading && window.__captionsReading('%s')"
+                "window.__captionsReading && window.__captionsReading('%s');"
+                "window.__captionsShow && window.__captionsShow('%s');"
+                "window.__captionsMaxLines && window.__captionsMaxLines(%d);"
+                "window.__captionsTextScale && window.__captionsTextScale(%s)"
                 % (("true" if _hover_enabled else "false"),
                    ("true" if _blur_translation else "false"),
                    ("true" if _pos_color else "false"),
-                   _reading))
+                   _reading, _show, _max_lines, _text_scale))
         except Exception:
             pass
     except Exception as e:
@@ -208,18 +218,55 @@ def set_reading(mode: str) -> None:
     _reading = mode if mode in ("furigana", "romaji") else "off"
     _eval_js("window.__captionsReading && window.__captionsReading('%s')" % _reading)
 
-def load_prefs(*, blur=None, pos_color=None, reading=None) -> None:
-    global _blur_translation, _pos_color, _reading
+def _clamp_lines(n) -> int:
+    try:
+        n = int(n)
+    except (TypeError, ValueError):
+        return 0
+    return max(0, min(MAX_LINES_CAP, n))
+
+def _clamp_scale(v) -> float:
+    try:
+        v = float(v)
+    except (TypeError, ValueError):
+        return 1.0
+    return max(MIN_TEXT_SCALE, min(MAX_TEXT_SCALE, round(v, 2)))
+
+def set_show(mode: str) -> None:
+    global _show
+    _show = mode if mode in SHOW_MODES else "both"
+    _eval_js("window.__captionsShow && window.__captionsShow('%s')" % _show)
+
+def set_max_lines(n) -> None:
+    global _max_lines
+    _max_lines = _clamp_lines(n)
+    _eval_js("window.__captionsMaxLines && window.__captionsMaxLines(%d)" % _max_lines)
+
+def set_text_scale(v) -> None:
+    global _text_scale
+    _text_scale = _clamp_scale(v)
+    _eval_js("window.__captionsTextScale && window.__captionsTextScale(%s)" % _text_scale)
+
+def load_prefs(*, blur=None, pos_color=None, reading=None, show=None, max_lines=None,
+                text_scale=None) -> None:
+    global _blur_translation, _pos_color, _reading, _show, _max_lines, _text_scale
     if isinstance(blur, bool):
         _blur_translation = blur
     if isinstance(pos_color, bool):
         _pos_color = pos_color
     if isinstance(reading, str):
         _reading = reading if reading in ("furigana", "romaji") else "off"
+    if isinstance(show, str):
+        _show = show if show in SHOW_MODES else "both"
+    if max_lines is not None:
+        _max_lines = _clamp_lines(max_lines)
+    if text_scale is not None:
+        _text_scale = _clamp_scale(text_scale)
 
 def get_prefs() -> dict:
     return {"pos_color": _pos_color, "hover": _hover_enabled, "blur": _blur_translation,
-            "reading": _reading, "shown": _shown}
+            "reading": _reading, "shown": _shown, "show": _show,
+            "max_lines": _max_lines, "text_scale": _text_scale}
 
 def _on_hotkey() -> None:
     toggle_interactive()
