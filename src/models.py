@@ -61,8 +61,7 @@ def _whisper_artifacts(model: str) -> list[Path]:
     return artifacts
 
 def _whisper_decoder_present(model: str) -> bool:
-    root = engine_install.MODELS_DIR / "whisper"
-    return (root / model / f"{model}.pt").exists() or (root / "pt" / f"{model}.pt").exists()
+    return (engine_install.MODELS_DIR / "whisper" / model / f"{model}.pt").exists()
 
 def _whisper_installed(model: str, engine: str = "whisper-batch") -> bool:
     if engine == "whisper" and not _whisper_decoder_present(model):
@@ -174,7 +173,8 @@ async def model_download(payload: dict = Body(...)):
         if model not in manifest.get("models", []):
             raise HTTPException(status_code=404, detail=f"Unknown model: {model}")
         want_decoder = (engine == "whisper" and manifest["id"] == "whisper")
-        if not engine_install.start_whisper_model_download(py, model, want_decoder):
+        decoder_only = want_decoder and _whisper_installed(model, "whisper-batch")
+        if not engine_install.start_whisper_model_download(py, model, want_decoder, decoder_only):
             raise HTTPException(status_code=409, detail="Another download/install is already running")
         return {"ok": True}
     if engine != "parakeet" or model not in engine_install.PARAKEET_MODEL_ARCHIVES:

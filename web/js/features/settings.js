@@ -35,7 +35,7 @@ export function initSettings(h) { host = h; }
     api.getCaptionsOverlayState().then(function (s) {
       setTog($('#cc-blur'), !!s.blur); setTog($('#cc-pos'), !!s.pos_color);
       var rd = $('#cc-reading'); if (rd) rd.value = s.reading || 'off';
-      $('#cc-show').value = s.show || 'both';
+      $('#cc-show').value = s.show || 'both'; ccSyncTrSec();
       $('#cc-maxlines').value = String(s.max_lines || 0);
 
       ccPickNum($('#cc-textsize'), s.text_scale, 1);
@@ -152,8 +152,9 @@ export function initSettings(h) { host = h; }
     api.setCaptionsOverlayReading(this.value).catch(function () {});
   });
 
+  function ccSyncTrSec() { $('#cc-tr-sec').hidden = $('#cc-show').value === 'original'; }
   $('#cc-show').addEventListener('change', function (e) {
-    e.stopPropagation();
+    e.stopPropagation(); ccSyncTrSec();
     api.setCaptionsOverlayContent(this.value).catch(function () {});
   });
   $('#cc-maxlines').addEventListener('change', function (e) {

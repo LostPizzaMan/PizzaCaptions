@@ -90,17 +90,21 @@ import { initDownloads, runModelDownload } from './features/downloads.js';
     });
   }
 
-  var _serverSaveTimer = null, _bootDone = false;
+  var _saveQueued = false, _saveChain = Promise.resolve(), _bootDone = false;
 
   function saveServer() {
     var reading = (window.jadict && window.jadict.readingMode) || 'off';
-    api.saveConfig({ ui_state: { TR: TR, oscOwner: oscOwner, overlaySource: state.overlaySource, reading: reading } })
+    return api.saveConfig({ ui_state: { TR: TR, oscOwner: oscOwner, overlaySource: state.overlaySource, reading: reading } })
        .catch(function () {});
   }
+
   function scheduleServerSave() {
-    if (!_bootDone) return;
-    if (_serverSaveTimer) clearTimeout(_serverSaveTimer);
-    _serverSaveTimer = setTimeout(function () { _serverSaveTimer = null; saveServer(); }, 500);
+    if (!_bootDone || _saveQueued) return;
+    _saveQueued = true;
+    setTimeout(function () {
+      _saveQueued = false;
+      _saveChain = _saveChain.then(saveServer);
+    }, 0);
   }
 
   function save() {
@@ -132,12 +136,6 @@ import { initDownloads, runModelDownload } from './features/downloads.js';
   function loadStored() {
     try { applyStored(JSON.parse(localStorage.getItem('v2Transports') || 'null')); } catch (e) {}
   }
-
-  document.addEventListener('visibilitychange', function () {
-    if (document.visibilityState === 'hidden' && _serverSaveTimer) {
-      clearTimeout(_serverSaveTimer); _serverSaveTimer = null; saveServer();
-    }
-  });
 
   function installedEngines() {
     if (!state.engineInfo) return [];
@@ -1238,6 +1236,11 @@ import { initDownloads, runModelDownload } from './features/downloads.js';
   document.addEventListener('click', closePop);
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape') { closePop(); closeDrawer(); closeMenus(); closeSettings(); } });
 
+  function rememberModel(engine, model) {
+    if (!state.engineInfo || !engine || !model) return;
+    (state.engineInfo.engine_models = state.engineInfo.engine_models || {})[engine] = model;
+  }
+
   ['you', 'them'].forEach(function (r) {
     var dc = $('#dc-' + r), c = TR[r];
     var engSel = $('[data-cfg="engine"]', dc), mdlSel = $('[data-cfg="model"]', dc),
@@ -1249,7 +1252,11 @@ import { initDownloads, runModelDownload } from './features/downloads.js';
       c.engine = engSel.value;
       var e = engById(c.engine);
       if (e) {
-        c.model = (state.engineInfo.engine_models && state.engineInfo.engine_models[e.id]) || e.default_model || e.models[0] || '';
+        var other = TR[r === 'you' ? 'them' : 'you'];
+        c.model = (other.engine === e.id && other.model)
+          || (state.engineInfo.engine_models && state.engineInfo.engine_models[e.id])
+          || e.default_model || e.models[0] || '';
+        rememberModel(e.id, c.model);
         if (e.languages.indexOf(c.src) < 0) c.src = e.languages[0] || 'auto';
       }
 
@@ -1257,7 +1264,7 @@ import { initDownloads, runModelDownload } from './features/downloads.js';
       renderDrawer('you'); renderDrawer('them'); renderStrip(r); save(); applyIfLive(r);
     });
     mdlSel.addEventListener('change', function () {
-      c.model = mdlSel.value;
+      c.model = mdlSel.value; rememberModel(c.engine, c.model);
 
       if (sharedModelBoth()) { TR.them.model = c.model; renderDrawer('them'); renderStrip('them'); }
       renderStrip(r); save(); applyIfLive(r);

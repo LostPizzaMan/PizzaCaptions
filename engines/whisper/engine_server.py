@@ -1,10 +1,8 @@
 import argparse
 import asyncio
-import hashlib
 import json
 import logging
 import os
-import shutil
 import sys
 import time
 from pathlib import Path
@@ -112,8 +110,16 @@ def _make_config(language: str, model: str, model_dir: str | None = None):
     ]
     if model_dir:
         sys.argv += ["--model-path", model_dir]
-    if _model_cache_dir:
-        sys.argv += ["--model_cache_dir", _model_cache_dir]
+        from whisperlivekit.whisper import _ALIGNMENT_HEADS
+        heads = _ALIGNMENT_HEADS.get(model)
+        if heads:
+            sys.argv += ["--custom-alignment-heads", heads.decode()]
+    cache_dir = _model_cache_dir
+    decoder = _decoder_path(model)
+    if not model_dir and decoder:
+        cache_dir = str(decoder.parent)
+    if cache_dir:
+        sys.argv += ["--model_cache_dir", cache_dir]
     try:
         return parse_args()
     finally:
@@ -235,57 +241,10 @@ def _predownload(model: str, dest: Path):
     except Exception as e:
         logger.warning("model pre-download skipped (%s); loading directly", e)
 
-def _pt_complete(path: Path, url: str) -> bool:
-    expected = url.split("/")[-2]
-    h = hashlib.sha256()
-    try:
-        with open(path, "rb") as f:
-            for chunk in iter(lambda: f.read(1 << 20), b""):
-                h.update(chunk)
-    except OSError:
-        return False
-    return h.hexdigest() == expected
-
 def _decoder_path(model: str) -> "Path | None":
     if _whisper_dir is None:
         return None
-    flat = _whisper_dir / model
-    pt = flat / f"{model}.pt"
-    if pt.exists():
-        return pt
-    try:
-        from whisperlivekit.whisper import _MODELS as _PT_URLS, _download
-    except Exception as e:
-        logger.warning("decoder lookup unavailable (%s)", e)
-        return None
-    url = _PT_URLS.get(model)
-    if not url:
-        return None
-
-    legacy = _whisper_dir / "pt" / f"{model}.pt"
-    if legacy.exists():
-        if _pt_complete(legacy, url):
-            try:
-                flat.mkdir(parents=True, exist_ok=True)
-                legacy.replace(pt)
-                logger.info("Moved %s next to its weights", legacy.name)
-                return pt
-            except OSError as e:
-                logger.warning("could not move %s (%s); downloading instead", legacy, e)
-        else:
-            logger.info("%s is incomplete; discarding it and downloading", legacy.name)
-            legacy.unlink(missing_ok=True)
-
-    tmp = flat / ".dl"
-    try:
-        tmp.mkdir(parents=True, exist_ok=True)
-        logger.info("Fetching the streaming decoder for %s ...", model)
-        _download(url, str(tmp), False)
-        (tmp / f"{model}.pt").replace(pt)
-    except Exception as e:
-        logger.warning("decoder pre-download skipped (%s)", e)
-    finally:
-        shutil.rmtree(tmp, ignore_errors=True)
+    pt = _whisper_dir / model / f"{model}.pt"
     return pt if pt.exists() else None
 
 def _legacy_hf_present(model: str) -> bool:

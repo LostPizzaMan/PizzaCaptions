@@ -40,7 +40,7 @@ from hallucinations import DEFAULT_BLOCKED_PHRASES
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
-APP_VERSION = "0.6.0"
+APP_VERSION = "0.6.1"
 
 VRC_OSC_IP = "127.0.0.1"
 VRC_OSC_PORT = 9000
@@ -723,6 +723,8 @@ async def translate(payload: dict = Body(...)):
                 status_code=503,
                 detail=f"Translation timed out: {backend} did not answer in time")
         raise HTTPException(status_code=503, detail=f"Translation failed: {e.reason}")
+    except OSError as e:
+        raise HTTPException(status_code=503, detail=f"Translation failed: {e}")
 
 @app.websocket("/control")
 async def control_ws(ws: WebSocket):

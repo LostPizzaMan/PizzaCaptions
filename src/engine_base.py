@@ -28,8 +28,8 @@ def _free_port() -> int:
         s.bind(("127.0.0.1", 0))
         return s.getsockname()[1]
 
-_DL_SIZE_RE = re.compile(r"(\d+(?:\.\d+)?\s*[KMGT]i?B?\s*/\s*\d+(?:\.\d+)?\s*[KMGT]i?B?)", re.I)
-_DL_PCT_RE = re.compile(r"(\d{1,3})\s*%")
+_DL_SIZE_RE = re.compile(r"(\d+(?:\.\d+)?\s*(?:[KMGT]i?B?)?\s*/\s*\d+(?:\.\d+)?\s*[KMGT]i?B?)", re.I)
+_DL_PCT_RE = re.compile(r"(\d{1,3})(?:\.\d+)?\s*%")
 
 def _download_detail(line: str) -> str | None:
     low = line.lower()

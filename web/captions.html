@@ -32,12 +32,11 @@
   #active .orig { font-size: calc(30px * var(--cc-scale, 1)); font-weight: 600; color: #fff; }
   #active .tr   { font-size: calc(22px * var(--cc-scale, 1)); color: #cfe8ff; }
 
-  #active .line { font-size: calc(30px * var(--cc-scale, 1)); line-height: 1.35; }
-  body.furi #active .line { line-height: 1.9; }
-  body.cc-clip #active .line {
-    justify-content: flex-end;
-    max-height: calc(var(--cc-max-lines, 3) * 1lh); overflow: hidden;
+  body.cc-clip #active .orig, body.cc-clip #active .tr {
+    display: flex; flex-direction: column; justify-content: flex-end; overflow: hidden;
   }
+  body.cc-clip #active .orig { max-height: calc(var(--cc-orig-lines, 2) * 1lh); }
+  body.cc-clip #active .tr   { max-height: calc(var(--cc-tr-lines, 1) * 1lh); }
 
   body.hide-orig #active .orig, body.hide-tr #active .tr { display: none; }
 
@@ -93,6 +92,7 @@
   let hoverDefine = true;
   let blurTr = false;
   let showMode = 'both';
+  let maxLines = 3;
   let ws = null;
 
   const SILENCE_COMMIT_MS = 1250, SILENCE_FORCE_MARKED_MS = 8000, SOFT_LENGTH_LIMIT = 30;
@@ -134,10 +134,13 @@
 
   const lineWrap = document.createElement('div');
   lineWrap.className = 'line';
+
   const origEl = document.createElement('div');
   origEl.className = 'orig';
+  const origText = origEl.appendChild(document.createElement('div'));
   const trEl = document.createElement('div');
   trEl.className = 'tr';
+  const trText = trEl.appendChild(document.createElement('div'));
   lineWrap.appendChild(origEl);
   lineWrap.appendChild(trEl);
   activeEl.appendChild(lineWrap);
@@ -150,20 +153,33 @@
   function jaRenderOn() { return !!(window.jadict && (window.jadict.enabled || readingOn())); }
 
   function setOrig(text, live) {
-    origEl.textContent = text;
+    origText.textContent = text;
     if (segTimer) { clearTimeout(segTimer); segTimer = null; }
     if (!jaRenderOn() || !hasJa(text)) return;
     if (!live) {
-      window.jadict.renderJaText(origEl, text);
+      window.jadict.renderJaText(origText, text);
     } else {
       segTimer = setTimeout(function () {
-        if (origEl.textContent === text) window.jadict.renderJaText(origEl, text);
+        if (origText.textContent === text) window.jadict.renderJaText(origText, text);
       }, SEG_HOLD_MS);
     }
   }
 
   function showFlags(mode, hasTr) {
     return { hideOrig: mode === 'translation' && hasTr, hideTr: mode === 'original' };
+  }
+
+  function lineBudget(n, flags) {
+    if (flags.hideTr) return { orig: n, tr: 0 };
+    if (flags.hideOrig) return { orig: 0, tr: n };
+    const tr = Math.max(1, Math.floor(n / 2));
+    return { orig: Math.max(1, n - tr), tr: tr };
+  }
+
+  function applyLineBudget(flags) {
+    const b = lineBudget(maxLines, flags);
+    document.documentElement.style.setProperty('--cc-orig-lines', b.orig);
+    document.documentElement.style.setProperty('--cc-tr-lines', b.tr);
   }
 
   function render() {
@@ -176,6 +192,8 @@
     document.body.classList.toggle('hide-orig', flags.hideOrig);
     document.body.classList.toggle('hide-tr', flags.hideTr);
 
+    applyLineBudget({ hideOrig: flags.hideOrig, hideTr: flags.hideTr || !(text && tr) });
+
     const origKey = text + '\x00' + (live ? 1 : 0) + '\x00' + (placeholder ? 1 : 0) + '\x00' + (jaOn ? 1 : 0);
     if (origKey !== lastOrigKey) {
       lastOrigKey = origKey;
@@ -183,18 +201,18 @@
         origEl.classList.remove('placeholder');
         setOrig(text, live);
       } else if (placeholder) {
-        origEl.textContent = 'Captions will appear here';
+        origText.textContent = 'Captions will appear here';
         origEl.classList.add('placeholder');
       } else {
-        origEl.textContent = '';
+        origText.textContent = '';
       }
     }
     const trShown = text ? tr : '';
     if (trShown !== lastTr) {
       lastTr = trShown;
-      trEl.textContent = trShown;
+      trText.textContent = trShown;
 
-      if (trShown && jaRenderOn() && hasJa(trShown)) window.jadict.renderJaText(trEl, trShown);
+      if (trShown && jaRenderOn() && hasJa(trShown)) window.jadict.renderJaText(trText, trShown);
       trEl.style.display = trShown ? '' : 'none';
     }
     bar.classList.toggle('empty', !text);
@@ -237,11 +255,13 @@
     if (fullText.length < shownChars) shownChars = 0;
     curFullLen = fullText.length;
     const newText = fullText.slice(shownChars).trim().replace(/^[。．？！?!]+/, '');
+
+    const changed = !!newText && newText !== activeText;
     if (newText) activeText = newText;
 
     if (data.final) {
       commit();
-    } else if (newText) {
+    } else if (changed) {
       if (!engineSignalsFinal && newText.length >= SOFT_LENGTH_LIMIT && endsWithSentenceEnder(newText)) {
         commit();
       } else {
@@ -359,9 +379,9 @@
   };
 
   window.__captionsMaxLines = function (n) {
-    n = Math.max(0, Math.min(6, parseInt(n, 10) || 0));
-    document.documentElement.style.setProperty('--cc-max-lines', n);
-    document.body.classList.toggle('cc-clip', n > 0);
+    maxLines = Math.max(0, Math.min(6, parseInt(n, 10) || 0));
+    document.body.classList.toggle('cc-clip', maxLines > 0);
+    render();
   };
 
   window.__captionsTextScale = function (v) {
@@ -370,6 +390,10 @@
   };
 
   window.__captionsReading = function (mode) {
+    if (!window.jadict && document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', function () { window.__captionsReading(mode); }, { once: true });
+      return;
+    }
     if (window.jadict && window.jadict.setReadingMode) window.jadict.setReadingMode(mode);
     var m = (window.jadict && window.jadict.readingMode) || 'off';
     document.body.classList.toggle('furi', m === 'furigana');

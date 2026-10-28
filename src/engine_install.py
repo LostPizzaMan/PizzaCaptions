@@ -286,14 +286,17 @@ def start_model_download(model_id: str) -> bool:
     return True
 
 def _fmt_one(mb: float) -> str:
-    return f"{mb / 1024:.1f} GB" if mb >= 1024 else f"{mb:.0f} MB"
+    return f"{mb / 1000:.1f} GB" if mb >= 1000 else f"{mb:.0f} MB"
 
 def _fmt_mb(done_mb: float, total_mb: float) -> str:
     return f"{_fmt_one(done_mb)} / {_fmt_one(total_mb)}"
 
 _DL_PCT_RE = re.compile(r"(\d{1,3})%")
-_DL_SIZE_RE = re.compile(r"(\d[\d.]*)\s*([kKMG])i?B?\s*/\s*(\d[\d.]*)\s*([kKMG])i?B?")
-_DL_UNIT_MB = {"k": 1 / 1024, "K": 1 / 1024, "M": 1.0, "G": 1024.0}
+_DL_SIZE_RE = re.compile(r"(\d[\d.]*)\s*([kKMG])(i?)B?\s*/\s*(\d[\d.]*)\s*([kKMG])(i?)B?")
+_DL_POWER = {"k": 1, "K": 1, "M": 2, "G": 3}
+
+def _to_mb(num: str, unit: str, binary: str) -> float:
+    return float(num) * (1024 if binary else 1000) ** _DL_POWER[unit] / 1e6
 _dl_max_total_mb = 0.0
 _dl_last_fraction: "float | None" = None
 _DL_MIN_TOTAL_MB = 8.0
@@ -307,8 +310,9 @@ def _whisper_dl_detail(line: str) -> str | None:
         return None
     m = _DL_SIZE_RE.search(line)
     if m:
-        done = float(m.group(1)) * _DL_UNIT_MB[m.group(2)]
-        total = float(m.group(3)) * _DL_UNIT_MB[m.group(4)]
+        binary = "iB/s" in line
+        done = _to_mb(m.group(1), m.group(2), m.group(3) or binary)
+        total = _to_mb(m.group(4), m.group(5), m.group(6) or binary)
         if total >= max(_DL_MIN_TOTAL_MB, _dl_max_total_mb * 0.5):
             _dl_max_total_mb = max(_dl_max_total_mb, total)
             _dl_last_fraction = min(1.0, done / total) if total else None
@@ -320,21 +324,27 @@ def _whisper_dl_detail(line: str) -> str | None:
     return f"{m.group(1)}%" if m else "downloading..."
 
 _WHISPER_DL_RUNNER = Path(__file__).resolve().parent / "whisper_dl_runner.py"
+_WHISPER_DL_NEXT_STEP = "@@next-step"
 
 def whisper_model_dir(model: str) -> Path:
     return MODELS_DIR / "whisper" / model
 
-def download_whisper_model(engine_python: Path, model: str, with_decoder: bool = False):
+def download_whisper_model(engine_python: Path, model: str, with_decoder: bool = False,
+                           decoder_only: bool = False):
     global _cur_proc
     if _fake_download():
         _simulate_download(); return
     global _dl_max_total_mb, _dl_last_fraction
     _dl_max_total_mb = 0.0
     _dl_last_fraction = None
+    steps, step = (2 if with_decoder and not decoder_only else 1), 1
+    stale = False
     dest = whisper_model_dir(model)
     dest.mkdir(parents=True, exist_ok=True)
     cmd = [str(engine_python), str(_WHISPER_DL_RUNNER), model, str(dest)]
-    if with_decoder:
+    if decoder_only:
+        cmd.append("--decoder-only")
+    elif with_decoder:
         cmd.append("--with-decoder")
     proc = subprocess.Popen(cmd,
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
@@ -353,12 +363,25 @@ def download_whisper_model(engine_python: Path, model: str, with_decoder: bool =
                 line = "".join(buf).strip(); buf.clear()
                 if not line:
                     continue
+                if line == _WHISPER_DL_NEXT_STEP:
+                    step = min(step + 1, steps)
+                    _dl_max_total_mb = 0.0
+                    stale = True
+                    continue
                 tail.append(line)
                 del tail[:-15]
                 detail = _whisper_dl_detail(line)
+                if detail and stale:
+                    if _dl_last_fraction is not None and _dl_last_fraction >= 1.0:
+                        _dl_max_total_mb = 0.0
+                        continue
+                    stale = False
                 if detail:
+                    f = _dl_last_fraction
+                    if steps > 1:
+                        detail = f"Step {step} of {steps}: {detail}"
                     _set_job(phase="downloading-models", detail=detail,
-                             progress=_dl_last_fraction)
+                             progress=None if f is None else (step - 1 + f) / steps)
             else:
                 buf.append(ch)
         code = proc.wait()
@@ -370,7 +393,7 @@ def download_whisper_model(engine_python: Path, model: str, with_decoder: bool =
         raise RuntimeError("whisper model download failed: " + (" | ".join(tail[-5:]) or "no output"))
 
 def start_whisper_model_download(engine_python: Path, model: str,
-                                 with_decoder: bool = False) -> bool:
+                                 with_decoder: bool = False, decoder_only: bool = False) -> bool:
     with _job_lock:
         if not _job["done"]:
             return False
@@ -379,7 +402,7 @@ def start_whisper_model_download(engine_python: Path, model: str,
 
     def run():
         try:
-            download_whisper_model(engine_python, model, with_decoder)
+            download_whisper_model(engine_python, model, with_decoder, decoder_only)
             _set_job(phase="done", detail="", done=True)
         except _Cancelled:
             _set_job(phase="cancelled", detail="", error=None, done=True)
@@ -489,7 +512,7 @@ def _install_nemotron_binary(dest: Path):
             for member in members:
                 rel = member[4:] if member.startswith("bin/") else Path(member).name
                 out = (bin_dir / rel).resolve()
-                if not str(out).startswith(str(bin_dir.resolve())):
+                if not out.is_relative_to(bin_dir.resolve()):
                     raise RuntimeError(f"unsafe path in archive: {member}")
                 out.parent.mkdir(parents=True, exist_ok=True)
                 out.write_bytes(zf.read(member))

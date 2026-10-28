@@ -137,44 +137,36 @@
 
     <div class="menu wide" id="cc-menu" role="dialog" aria-modal="true" aria-label="Captions overlay">
       <div class="mt"><span>On-screen captions</span><button class="mx" data-close aria-label="Close">&times;</button></div>
-      <div class="mrow" id="cc-src-row"><span class="ml">Caption source<small>for the on-screen overlay</small></span>
+      <div class="mrow" id="cc-src-row"><span class="ml">Caption source</span>
         <select class="pick" id="cc-src">
           <option value="off">Off</option>
           <option value="you">Microphone (You)</option>
           <option value="them">Speaker (Them)</option>
-          <option value="win_captions" hidden>Windows 11 Live Captions</option>
+          <option value="win_captions" hidden>Windows Live Captions</option>
         </select></div>
       <div class="mh" id="cc-src-note" hidden></div>
       <div class="ccsec" id="cc-win-sec" hidden>
-        <div class="mrow" id="cc-win-manage" hidden><span class="ml">Live Captions pack</span>
+        <div class="msec">Windows Live Captions</div>
+        <div class="mrow" id="cc-win-manage" hidden><span class="ml">Pack</span>
           <button class="sbtn" id="cc-win-btn">Install</button></div>
         <div class="eprog" id="cc-win-prog" hidden style="margin-top:0;"></div>
         <div id="cc-win-opts" hidden>
-          <div class="mrow"><span class="ml">Win11 target<small>language to translate into</small></span>
+          <div class="mrow"><span class="ml">Translate into</span>
             <select class="pick" id="cc-win-tgt"></select></div>
-          <div class="mrow"><span class="ml">Win11 translator<small>backend for these captions</small></span>
+          <div class="mrow"><span class="ml">Translator</span>
             <select class="pick" id="cc-win-backend"></select></div>
           <div class="mrow"><span class="ml">Log to transcript<small>keep these Windows captions in the main list too</small></span>
             <button class="xtoggle" id="cc-win-transcript" aria-pressed="false">Off</button></div>
         </div>
       </div>
-      <div class="mrow"><span class="ml">Blur translation<small>reveal on hover</small></span>
-        <button class="xtoggle" id="cc-blur" aria-pressed="false">Off</button></div>
-      <div class="mrow"><span class="ml">Color by part of speech<small>needs the dictionary</small></span>
-        <button class="xtoggle" id="cc-pos" aria-pressed="false">Off</button></div>
-      <div class="mrow"><span class="ml">Reading aid<small>furigana or romaji on words</small></span>
-        <select class="pick" id="cc-reading">
-          <option value="off">Off</option>
-          <option value="furigana">Furigana</option>
-          <option value="romaji">Romaji</option>
-        </select></div>
-      <div class="mrow"><span class="ml">Show<small>which lines the bar draws</small></span>
+      <div class="msec">Layout</div>
+      <div class="mrow"><span class="ml">Show</span>
         <select class="pick" id="cc-show">
           <option value="both">Original + translation</option>
           <option value="translation">Translation only</option>
           <option value="original">Original only</option>
         </select></div>
-      <div class="mrow"><span class="ml">Max lines<small>the whole bar never grows past this</small></span>
+      <div class="mrow"><span class="ml">Max lines<small>the bar never grows past this</small></span>
         <select class="pick" id="cc-maxlines">
           <option value="0">No limit</option>
           <option value="1">1 line</option>
@@ -184,13 +176,27 @@
           <option value="5">5 lines</option>
           <option value="6">6 lines</option>
         </select></div>
-      <div class="mrow"><span class="ml">Text size<small>caption size on screen</small></span>
+      <div class="mrow"><span class="ml">Text size</span>
         <select class="pick" id="cc-textsize">
           <option value="0.8">Small</option>
           <option value="1">Normal</option>
           <option value="1.25">Large</option>
           <option value="1.5">Extra large</option>
         </select></div>
+      <div id="cc-tr-sec">
+        <div class="msec">Translation</div>
+        <div class="mrow"><span class="ml">Blur translation<small>reveal on hover</small></span>
+          <button class="xtoggle" id="cc-blur" aria-pressed="false">Off</button></div>
+      </div>
+      <div class="msec">Japanese</div>
+      <div class="mrow"><span class="ml">Reading aid</span>
+        <select class="pick" id="cc-reading">
+          <option value="off">Off</option>
+          <option value="furigana">Furigana</option>
+          <option value="romaji">Romaji</option>
+        </select></div>
+      <div class="mrow"><span class="ml">Color by part of speech<small>needs the dictionary</small></span>
+        <button class="xtoggle" id="cc-pos" aria-pressed="false">Off</button></div>
       <div class="mh">A click-through bar over your game. Press <b>Alt+C</b> to unlock it (drag to move, click words to define), then <b>Alt+C</b> or click off it to lock again.</div>
     </div>
 
